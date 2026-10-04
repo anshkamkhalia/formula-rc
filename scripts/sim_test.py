@@ -11,12 +11,8 @@ conf = {
 env = gym.make("donkey-generated-track-v0", conf=conf)
 obs, info = env.reset()
 
-for i in range(1):
-    obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
-    print(info)
-    
-    if terminated or truncated:
-        obs, info = env.reset()
-    
+while True:
+    obs, reward, terminated, truncated, info = env.step([0.0, 0.2]) # only throttle
+    print(info["speed"])    
 
 env.close()
