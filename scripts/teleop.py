@@ -10,7 +10,7 @@ from gym_donkeycar.envs.donkey_env import (
     GeneratedTrackEnv, MiniMonacoEnv, WarehouseEnv, MountainTrackEnv, WaveshareEnv
 )
 
-CHOSEN_MAP = "mini_monaco" 
+CHOSEN_MAP = "generated_track" 
 
 MAPS = {
     "generated_track": GeneratedTrackEnv,

@@ -17,14 +17,14 @@ class FormulaRCEnv:
             "port": 9091,
             "cam_resolution": (160, 120, 3),
             "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
-            "max_cte": 2.5,
+            "max_cte": 3,
         }
 
         # create env
         self.env = gym.make("donkey-generated-track-v0", conf=self.conf)
         self.rl_driver = build_rl_driver()
         self.n_timesteps = 6
-        self.optimizer = tf.keras.optimizers.Adam(1e-4)
+        self.optimizer = tf.keras.optimizers.Adam(2e-4)
         self.best_reward = -np.inf # track best reward instead of best loss
 
         # load model flag
@@ -35,6 +35,40 @@ class FormulaRCEnv:
 
         # steps flag
         print(f"{sys.argv[2]} episodes per epoch\n")
+        self.MAX_EP_STEPS = 2000
+
+    def utils_action(self, buffer):
+        pred_buffer = self.pad_frame_buffer(buffer) # pad inputs
+
+        # convert to tensor and action
+        state_tensor = tf.convert_to_tensor([pred_buffer], dtype=tf.float32)
+        steer_mu, steer_raw_std, throttle_mu, throttle_std_raw, value = self.rl_driver(state_tensor)
+
+        # enforce positive deviations
+        steer_std = tf.math.softplus(steer_raw_std) + 1e-5
+        throttle_std = tf.math.softplus(throttle_std_raw) + 1e-5
+
+        # create base normal distributions
+        steer_dist = tfp.distributions.Normal(loc=steer_mu, scale=steer_std)
+        throttle_dist = tfp.distributions.Normal(loc=throttle_mu, scale=throttle_std)
+
+        # sample raw actions
+        raw_steering = steer_dist.sample()
+        raw_throttle = throttle_dist.sample()
+        
+        # squash boundaries with tanh and sigmoid
+        steering = tf.math.tanh(raw_steering) # steering is between -1, 1
+        throttle = tf.math.sigmoid(raw_throttle) # throttle between 0, 1
+
+        # calculate log probabilities
+        log_prob_steer = steer_dist.log_prob(raw_steering) - tf.math.log(1.0 - steering ** 2 + 1e-6)
+        log_prob_throttle = throttle_dist.log_prob(raw_throttle) - tf.math.log(throttle * (1.0 - throttle) + 1e-6)
+
+        # total log probability
+        total_log_prob = log_prob_steer + log_prob_throttle
+
+        # convert value from tensors to standard scalars
+        return float(steering), float(throttle), float(raw_steering), float(raw_throttle), float(total_log_prob), float(value), pred_buffer
 
     def action(self):
         pred_buffer = self.pad_frame_buffer(self.frame_buffer) # pad inputs
@@ -76,26 +110,31 @@ class FormulaRCEnv:
             buffer = pad + list(buffer)
         return np.concatenate(buffer, axis=-1)
 
-    def reward(self, info, max_cte=2.5):
-        
+    def reward(self, info, steps, max_cte=3):
         cte = abs(info["cte"])
-
         speed = np.clip(info["speed"], 0.0, 4.0)
+        laps = info["lap_count"]
 
-        curr_reward = speed / 4.0 # reward higher speeds
-        curr_reward -= 2.0 * (cte / max_cte) ** 2 # penalize drifting from centerline
+        curr_reward = speed / 4.0
+        curr_reward -= 2.0 * (cte / max_cte) ** 2
 
-        # discourage crawling
+        if cte < max_cte:
+            curr_reward += 0.3 * min(steps / 200.0, 1.0) # increases
+
         if speed < 1.0:
             curr_reward -= 1.5 * (1.0 - speed)
 
-        if cte > max_cte: # aggressive off-track penalty
-            curr_reward -= 3.0
+        if cte > max_cte:
+            curr_reward -= 5.0
 
-        if info["hit"] != "none": # collision
-            curr_reward -= 3.0
+        if info["hit"] != "none":
+            curr_reward -= 5.0
 
-        return curr_reward
+        if laps >= 1:
+            print(f"log: lap bonus {4 * laps} for {laps} lap(s)")
+            curr_reward + 4 * laps 
+
+        return curr_reward 
 
     def run_critic_on_truncated(self):
         pred_buffer = self.pad_frame_buffer(self.frame_buffer) # pad inputs
@@ -104,9 +143,9 @@ class FormulaRCEnv:
         state_tensor = tf.convert_to_tensor([pred_buffer], dtype=tf.float32)
         _, _, _, _, value = self.rl_driver(state_tensor)
 
-        return value[0][0]
+        return float(value[0][0])
 
-    def train(self, epochs=100, episodes=10, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=2, minibatch_size=128, max_grad_norm=0.5):
+    def train(self, epochs=100, episodes=15, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=4, minibatch_size=128, max_grad_norm=0.5):
 
         obs, info = self.env.reset()
         self.frame_buffer = [] # stores last n frames
@@ -126,28 +165,32 @@ class FormulaRCEnv:
             values = []
 
             finished_episodes = []
-
             episodes_completed = 0
+            episode_steps = 0
 
             while episodes_completed < episodes:
 
                 # step loop, collect data
                 steering, throttle, raw_steering, raw_throttle, total_logp, value, inputs = self.action() # get action
                 obs, _, terminated, truncated, info = self.env.step([steering, throttle]) # custom reward
+                episode_steps += 1
 
                 self.frame_buffer.append(obs / 255.0)
 
                 if len(self.frame_buffer) > 6:
                     self.frame_buffer = self.frame_buffer[-6:] # take 6 most recent elements
-                step_reward = self.reward(info) # calculate custom reward
+                step_reward = self.reward(info, steps=episode_steps) # calculate custom reward
                 episode_reward += step_reward
 
+                if episode_steps >= self.MAX_EP_STEPS and not terminated:
+                    truncated = True
+
                 # data collection for rollout buffer
-                observations.append(inputs)
+                observations.append(np.round(inputs * 255).astype(np.uint8))
                 rewards.append(step_reward)
                 done_vals.append(terminated or truncated)
                 if terminated or truncated:
-                    finished_episodes.append(episode_reward)
+                    finished_episodes.append(episode_reward / episode_steps)
                     episode_reward = 0.0
 
                 logp_vals.append(total_logp)
@@ -157,6 +200,7 @@ class FormulaRCEnv:
 
                 if terminated:
                     obs, info = self.env.reset()
+                    episode_steps = 0
                     self.frame_buffer = []
                     self.frame_buffer.append(obs/255.0)
                     episodes_completed += 1
@@ -166,6 +210,7 @@ class FormulaRCEnv:
                     last_stored_reward = rewards[-1]
                     rewards[-1] = last_stored_reward + last_value
                     obs, info = self.env.reset()
+                    episode_steps = 0
                     self.frame_buffer = []
                     self.frame_buffer.append(obs/255.0)
                     episodes_completed += 1
@@ -173,9 +218,9 @@ class FormulaRCEnv:
             end_of_rollout = self.run_critic_on_truncated()
 
             obs, info = self.env.reset()
+            episode_steps = 0
             self.frame_buffer = []
             self.frame_buffer.append(obs/255.0)
-            episodes_completed += 1
 
             # gae
 
@@ -207,10 +252,9 @@ class FormulaRCEnv:
             old_logp = tf.convert_to_tensor(logp_vals, dtype=tf.float32)
             raw_steerings = tf.convert_to_tensor(raw_steerings, dtype=tf.float32)
             raw_throttles = tf.convert_to_tensor(raw_throttles, dtype=tf.float32)
-            observations = tf.convert_to_tensor(np.array(observations), dtype=tf.float32)
+            observations = np.stack(observations)
 
             n = observations.shape[0]
-            stop_early = False
             stats = {"kl": [], "clip": [], "policy": [], "value": [], "entropy": [], "grad_norm": []}
 
             for ppo_epoch in range(ppo_epochs):
@@ -222,7 +266,7 @@ class FormulaRCEnv:
                     idx = indices[start:start + minibatch_size]
 
                     # gather the minibatch
-                    mb_obs = tf.gather(observations, idx)
+                    mb_obs = tf.convert_to_tensor(observations[idx.numpy()], dtype=tf.float32) / 255.0
                     mb_raw_steer = tf.gather(raw_steerings, idx)
                     mb_raw_throttle = tf.gather(raw_throttles, idx)
                     mb_old_logp = tf.gather(old_logp, idx)
@@ -298,21 +342,17 @@ class FormulaRCEnv:
                         print("first minibatch ratio min/mean/max:",
                             float(tf.reduce_min(ratio)), float(tf.reduce_mean(ratio)), float(tf.reduce_max(ratio)))
 
-                    # safety valve
-                    if (kl / n_kl) > 0.05:
-                        stop_early = True
-                        break
-
-                if stop_early:
-                    print(f"early stop at pass {ppo_epoch + 1}, kl={approx_kl:.4f}")
+                # safety valve
+                if (kl / n_kl) > 0.05:
+                    print(f"stopping, approx kl is: {kl/n_kl}")
                     break
 
-                print(
-                    f"epoch {epoch} | episodes {len(finished_episodes)} | mean ep reward {mean_ep_reward:.2f} | "
-                    f"updates {len(stats['kl'])} | kl {np.mean(stats['kl']):.4f} | clipfrac {np.mean(stats['clip']):.3f} | "
-                    f"policy {np.mean(stats['policy']):.4f} | value {np.mean(stats['value']):.3f} | "
-                    f"entropy {np.mean(stats['entropy']):.3f} | gradnorm {np.mean(stats['grad_norm']):.3f}"
-                )
+            print(
+                f"epoch {epoch} | episodes {len(finished_episodes)} | mean ep reward {mean_ep_reward:.2f} | "
+                f"updates {len(stats['kl'])} | kl {np.mean(stats['kl']):.4f} | clipfrac {np.mean(stats['clip']):.3f} | "
+                f"policy {np.mean(stats['policy']):.4f} | value {np.mean(stats['value']):.3f} | "
+                f"entropy {np.mean(stats['entropy']):.3f} | gradnorm {np.mean(stats['grad_norm']):.3f}"
+            )
 
             mean_ep_reward = np.mean(finished_episodes) if finished_episodes else float("nan")
 
@@ -334,4 +374,5 @@ class FormulaRCEnv:
 
         self.env.close()
 
-trainer = FormulaRCEnv().train(epochs=10_000, episodes=int(sys.argv[2]))
+if __name__ == "__main__":
+    trainer = FormulaRCEnv().train(epochs=10_000, episodes=int(sys.argv[2]))

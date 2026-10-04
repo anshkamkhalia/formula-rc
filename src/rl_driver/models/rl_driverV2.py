@@ -10,7 +10,8 @@ def build_rl_driver(timesteps=6):
     encoder_out = tf.keras.layers.Conv2D(64, (3,3), strides=2, padding='same', activation='relu')(x)
 
     flattened = tf.keras.layers.Flatten()(encoder_out)
-    x = tf.keras.layers.Dense(128, activation="relu")(flattened)
+    x = tf.keras.layers.Dense(32, activation="relu")(flattened)
+    x = tf.keras.layers.Dense(64, activation="relu")(x)
 
     # steering distribution
     steering_mu = tf.keras.layers.Dense(1, activation=None, name="steering_mu")(x)
