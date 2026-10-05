@@ -41,3 +41,14 @@ versions
     - going to add lap finishes as large rewards
 
     - extremely consistent lap completions, optimize for lap time next
+
+## v3:
+
+### changes:
+1. lap times (only change for now, add more based on initial results)
+    - change reward to maximize lap times instead of just keeping center line
+    - previous rewards and losses (straying from center, speed, etc) will remain, but be dampened
+    - majority is for improving lap times
+
+- **results**
+    - 
