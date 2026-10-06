@@ -2,17 +2,33 @@
 
 ## things to try later:
 - vae (variational autoencoder) instead of raw pixels + sac
+    - train on real + sim
+    - remove noise (edges, top bottom) to keep center important information
+    - randomize lighting, colors, textures, camera noise, blur, etc
+    - goal is to merge real images and sim images into one latent spaces to seamless sim-to-real
 - increase max_cte to allow car to stray a bit further from track to optimize racing lines
 
 versions
 
 > note: changes only encompass the major changes, small extra changes may also have been made
 
-## v1:
-- very basic
-- only images as input
-- **results**:
-    - very poor performance, model stops learning and barely moves to maximize center reward
+## v3:
+
+### changes:
+1. lap times (only change for now, add more based on initial results)
+    - change reward to minimize lap times instead of just keeping center line
+    - previous rewards and losses (straying from center, speed, etc) will remain, but be dampened
+    - majority is for improving lap times
+
+- **results**
+    - 9.92 second average lap time
+    - now testing:
+        - testing generalization on different tracks
+            - does not generalize, expected because we are currently only using raw frames
+        - non-probalistic version to see if it is smooth
+            - non stochastic version doesnt work nearly as well, model learned to work with noise
+        - adding an opponent (v4)
+
 
 ## v2:
 
@@ -42,13 +58,9 @@ versions
 
     - extremely consistent lap completions, optimize for lap time next
 
-## v3:
 
-### changes:
-1. lap times (only change for now, add more based on initial results)
-    - change reward to maximize lap times instead of just keeping center line
-    - previous rewards and losses (straying from center, speed, etc) will remain, but be dampened
-    - majority is for improving lap times
-
-- **results**
-    - 
+## v1:
+- very basic
+- only images as input
+- **results**:
+    - very poor performance, model stops learning and barely moves to maximize center reward

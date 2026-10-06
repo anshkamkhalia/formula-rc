@@ -81,6 +81,7 @@ def main():
         action = [steering, throttle]
 
         obs, reward, terminated, truncated, info = env.step(action)
+        print(info['last_lap_time'])
 
         if terminated or truncated:
             print("Episode finished. Resetting environment...")
