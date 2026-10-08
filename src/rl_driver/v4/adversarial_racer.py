@@ -1,16 +1,25 @@
-import sys
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 import gymnasium as gym
 import gym_donkeycar
 
+config = {
+    "exe_path": "remote",
+    "host": "127.0.0.1",
+    "port": 9091,
+    "body_style": "f1",
+    "body_rgb": (255, 0, 0),
+    "car_name": "enemy",
+    "font_size": 50,
+}
+
 from src.rl_driver.v3.rl_driverV3 import build_rl_driver
 
 n_timesteps = 6
 
 rl_driver = build_rl_driver()
-rl_driver.load_weights("checkpoints/best_lap.weights.h5")
+rl_driver.load_weights("checkpoints/best_lap_completer.weights.h5")
 
 conf = {
     "exe_path": "remote",
@@ -22,7 +31,7 @@ conf = {
     # car appearance
     "body_style": "f1",
     "body_rgb": (71, 71, 71),
-    "car_name": "rl_driver",
+    "car_name": "enemy",
     "font_size": 50,
 }
 
@@ -69,7 +78,7 @@ def utils_action(buffer):
     # convert value from tensors to standard scalars
     return float(steering), float(throttle), float(raw_steering), float(raw_throttle), float(total_log_prob), float(value), pred_buffer
 
-env = gym.make(sys.argv[1], conf=conf)
+env = gym.make("donkey-generated-track-v0", conf=conf)
 frame_buffer = []
 
 try:
@@ -78,6 +87,7 @@ try:
 
     while True:
         steering, throttle, raw_steering, raw_throttle, total_logp, value, inputs = utils_action(frame_buffer)
+        print(steering, throttle)
         obs, _, terminated, truncated, info = env.step([steering, throttle])
 
         frame_buffer.append(obs / 255.0)

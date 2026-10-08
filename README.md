@@ -12,6 +12,20 @@ versions
 
 > note: changes only encompass the major changes, small extra changes may also have been made
 
+
+## v4:
+
+### changes
+1. add a second car as an opponent
+    - use a basic pretrained model
+2. optimize for being ahead and overtakes
+    - huge reward for overtaking, survival bonux for being in 1st
+    - no information on which car is ahead, so we rely on lap time
+
+- **results**
+    -
+
+
 ## v3:
 
 ### changes:

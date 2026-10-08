@@ -3,7 +3,7 @@ import tensorflow_probability as tfp
 import numpy as np
 import gym_donkeycar
 import gymnasium as gym
-from src.rl_driver.models.rl_driverV1 import build_rl_driver
+from src.rl_driver.v1.rl_driverV1 import build_rl_driver
 import os
 import sys
 

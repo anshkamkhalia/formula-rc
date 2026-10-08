@@ -3,7 +3,7 @@ import tensorflow_probability as tfp
 import numpy as np
 import gym_donkeycar
 import gymnasium as gym
-from src.rl_driver.models.rl_driverV3 import build_rl_driver
+from src.rl_driver.v2.rl_driverV2 import build_rl_driver
 import os
 import sys
 
@@ -11,33 +11,21 @@ class FormulaRCEnv:
 
     def __init__(self):
 
-        self.max_cte = 3.5
-
         # configs
         self.conf = {
             "exe_path": "remote",
             "port": 9091,
             "cam_resolution": (160, 120, 3),
             "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
-            "max_cte": self.max_cte,
-
-            # car appearance
-            "body_style": "f1", 
-            "body_rgb": (71, 71, 71),      
-            "car_name": "rl_driver",
-            "font_size": 50,
+            "max_cte": 3,
         }
-        
+
+        # create env
+        self.env = gym.make("donkey-generated-track-v0", conf=self.conf)
         self.rl_driver = build_rl_driver()
         self.n_timesteps = 6
         self.optimizer = tf.keras.optimizers.Adam(2e-4)
-
-        self.max_speed = 7.0
-        self.prev_laps = 0
-        self.lap_times = []
-        self.best_lap_time = np.inf
-
-        self.REWARD_SCALE = 0.1
+        self.best_reward = -np.inf # track best reward instead of best loss
 
         # load model flag
         if sys.argv[1] == "new":
@@ -49,9 +37,6 @@ class FormulaRCEnv:
         print(f"{sys.argv[2]} episodes per epoch\n")
         self.MAX_EP_STEPS = 2000
 
-    def make_std(self, raw):
-        return tf.clip_by_value(tf.math.softplus(raw) + 1e-5, 1e-3, 1.0)
-
     def utils_action(self, buffer):
         pred_buffer = self.pad_frame_buffer(buffer) # pad inputs
 
@@ -60,8 +45,8 @@ class FormulaRCEnv:
         steer_mu, steer_raw_std, throttle_mu, throttle_std_raw, value = self.rl_driver(state_tensor)
 
         # enforce positive deviations
-        steer_std = self.make_std(steer_raw_std)
-        throttle_std = self.make_std(throttle_std_raw)
+        steer_std = tf.math.softplus(steer_raw_std) + 1e-5
+        throttle_std = tf.math.softplus(throttle_std_raw) + 1e-5
 
         # create base normal distributions
         steer_dist = tfp.distributions.Normal(loc=steer_mu, scale=steer_std)
@@ -93,8 +78,8 @@ class FormulaRCEnv:
         steer_mu, steer_raw_std, throttle_mu, throttle_std_raw, value = self.rl_driver(state_tensor)
 
         # enforce positive deviations
-        steer_std = self.make_std(steer_raw_std)
-        throttle_std = self.make_std(throttle_std_raw)
+        steer_std = tf.math.softplus(steer_raw_std) + 1e-5
+        throttle_std = tf.math.softplus(throttle_std_raw) + 1e-5
 
         # create base normal distributions
         steer_dist = tfp.distributions.Normal(loc=steer_mu, scale=steer_std)
@@ -125,46 +110,31 @@ class FormulaRCEnv:
             buffer = pad + list(buffer)
         return np.concatenate(buffer, axis=-1)
 
-    def reward(self, info, steps):
-        max_cte = self.max_cte
+    def reward(self, info, steps, max_cte=3):
         cte = abs(info["cte"])
-        speed = float(np.clip(info["speed"], 0.0, self.max_speed))
+        speed = np.clip(info["speed"], 0.0, 4.0)
         laps = info["lap_count"]
 
-        # new episode: sync to whatever the sim reports (prevents a phantom lap bonus)
-        if steps <= 1:
-            self.prev_laps = laps
+        curr_reward = speed / 4.0
+        curr_reward -= 2.0 * (cte / max_cte) ** 2
 
-        # terminal penalties
-        if cte > max_cte or info["hit"] != "none":
-            return -10.0
-
-        speed_norm = speed / self.max_speed
-        centering = max(0.0, 1.0 - (cte / max_cte) ** 2)
-
-        curr_reward = 1.5 * speed_norm * centering
-        curr_reward -= 0.5 * (cte / max_cte) ** 2
+        if cte < max_cte:
+            curr_reward += 0.3 * min(steps / 200.0, 1.0) # increases
 
         if speed < 1.0:
-            curr_reward -= 1.0 * (1.0 - speed)
+            curr_reward -= 1.5 * (1.0 - speed)
 
-        # lap reward, paid once when lap_count increments
-        if laps > self.prev_laps:
-            self.prev_laps = laps
+        if cte > max_cte:
+            curr_reward -= 5.0
 
-            lap_time = float(info.get("last_lap_time", 0.0))
-            if lap_time <= 0.0: # sim hasn't updated it yet, treat as a slow lap
-                lap_time = 30.0
-            else:
-                self.lap_times.append(lap_time)
+        if info["hit"] != "none":
+            curr_reward -= 5.0
 
-            target = 10.2
-            bonus = float(np.clip(10.0 + 15.0 * (target - lap_time), 2.0, 25.0))
+        if laps >= 1:
+            print(f"log: lap bonus {4 * laps} for {laps} lap(s)")
+            curr_reward + 4 * laps 
 
-            print(f"log: lap {laps} in {lap_time:.2f}s, bonus {bonus:.1f}")
-            curr_reward += bonus
-
-        return curr_reward
+        return curr_reward 
 
     def run_critic_on_truncated(self):
         pred_buffer = self.pad_frame_buffer(self.frame_buffer) # pad inputs
@@ -177,9 +147,12 @@ class FormulaRCEnv:
 
     def train(self, epochs=100, episodes=15, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=4, minibatch_size=128, max_grad_norm=0.5):
 
+        obs, info = self.env.reset()
         self.frame_buffer = [] # stores last n frames
+        self.frame_buffer.append(obs/255.0)
 
         episode_reward = 0.0 # running total for the current episode
+        reward_history = [] # one mean episode reward per rollout
 
         for epoch in range(epochs):
 
@@ -192,17 +165,8 @@ class FormulaRCEnv:
             values = []
 
             finished_episodes = []
-            finished_lengths = []
-            finished_crashed = []
             episodes_completed = 0
             episode_steps = 0
-
-            self.lap_times = []
-
-            # create env every epoch
-            self.env = gym.make("donkey-generated-track-v0", conf=self.conf)
-            obs, info = self.env.reset()
-            self.frame_buffer.append(np.array(obs/255.0, dtype=np.float32))
 
             while episodes_completed < episodes:
 
@@ -223,12 +187,10 @@ class FormulaRCEnv:
 
                 # data collection for rollout buffer
                 observations.append(np.round(inputs * 255).astype(np.uint8))
-                rewards.append(step_reward * self.REWARD_SCALE)
+                rewards.append(step_reward)
                 done_vals.append(terminated or truncated)
                 if terminated or truncated:
-                    finished_episodes.append(episode_reward) # total return, not per-step
-                    finished_lengths.append(episode_steps)
-                    finished_crashed.append(bool(terminated))
+                    finished_episodes.append(episode_reward / episode_steps)
                     episode_reward = 0.0
 
                 logp_vals.append(total_logp)
@@ -240,7 +202,7 @@ class FormulaRCEnv:
                     obs, info = self.env.reset()
                     episode_steps = 0
                     self.frame_buffer = []
-                    self.frame_buffer.append(np.array(obs/255.0, dtype=np.float32))
+                    self.frame_buffer.append(obs/255.0)
                     episodes_completed += 1
 
                 elif truncated:
@@ -250,7 +212,7 @@ class FormulaRCEnv:
                     obs, info = self.env.reset()
                     episode_steps = 0
                     self.frame_buffer = []
-                    self.frame_buffer.append(np.array(obs/255.0, dtype=np.float32))
+                    self.frame_buffer.append(obs/255.0)
                     episodes_completed += 1
 
             end_of_rollout = self.run_critic_on_truncated()
@@ -258,9 +220,7 @@ class FormulaRCEnv:
             obs, info = self.env.reset()
             episode_steps = 0
             self.frame_buffer = []
-            self.frame_buffer.append(np.array(obs/255.0, dtype=np.float32))
-
-            self.env.close() # close while updating
+            self.frame_buffer.append(obs/255.0)
 
             # gae
 
@@ -284,7 +244,6 @@ class FormulaRCEnv:
                 advantages[t] = last_adv
 
             returns = advantages + values_arr # do not normalize critic targets
-            expl_var = 1.0 - np.var(returns - values_arr) / (np.var(returns) + 1e-8)
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
             # convert data to tensors
@@ -328,8 +287,8 @@ class FormulaRCEnv:
                         new_value = tf.squeeze(new_value, axis=-1)
 
                         # softplus
-                        steer_std = self.make_std(steer_std_raw)
-                        throttle_std = self.make_std(throttle_std_raw)
+                        steer_std = tf.math.softplus(steer_std_raw) + 1e-5
+                        throttle_std = tf.math.softplus(throttle_std_raw) + 1e-5
 
                         # normal distributions
                         steer_dist = tfp.distributions.Normal(loc=steer_mu, scale=steer_std)
@@ -350,16 +309,14 @@ class FormulaRCEnv:
                         clipped = tf.clip_by_value(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * mb_adv
                         policy_loss = -tf.reduce_mean(tf.minimum(unclipped, clipped))
 
-                        # value loss against unormalized returns with huber
-                        value_loss = tf.reduce_mean(
-                            tf.keras.losses.huber(mb_returns[:, None], new_value[:, None], delta=1.0)
-                        )
+                        # value loss against unormalized returns
+                        value_loss = tf.reduce_mean(tf.square(new_value - mb_returns))
 
                         # entropy bonus
                         entropy = tf.reduce_mean(steer_dist.entropy() + throttle_dist.entropy())
 
                         # total
-                        self.loss = policy_loss + 0.25 * value_loss - 0.001 * entropy
+                        self.loss = policy_loss + 0.25 * value_loss - 0.01 * entropy
             
                     # update vars
                     variables = self.rl_driver.trainable_variables
@@ -390,31 +347,32 @@ class FormulaRCEnv:
                     print(f"stopping, approx kl is: {kl/n_kl}")
                     break
 
-            mean_ep_reward = np.mean(finished_episodes) if finished_episodes else float("nan")
-            mean_len = np.mean(finished_lengths) if finished_lengths else float("nan")
-            crash_rate = np.mean(finished_crashed) if finished_crashed else float("nan")
-
             print(
-                f"epoch {epoch} | episodes {len(finished_episodes)} | mean return {mean_ep_reward:.1f} | "
-                f"mean len {mean_len:.0f} | crash rate {crash_rate:.2f} | "
+                f"epoch {epoch} | episodes {len(finished_episodes)} | mean ep reward {mean_ep_reward:.2f} | "
                 f"updates {len(stats['kl'])} | kl {np.mean(stats['kl']):.4f} | clipfrac {np.mean(stats['clip']):.3f} | "
                 f"policy {np.mean(stats['policy']):.4f} | value {np.mean(stats['value']):.3f} | "
-                f"entropy {np.mean(stats['entropy']):.3f} | gradnorm {np.mean(stats['grad_norm']):.3f} | "
-                f"expl var {expl_var:.2f}"
+                f"entropy {np.mean(stats['entropy']):.3f} | gradnorm {np.mean(stats['grad_norm']):.3f}"
             )
+
+            mean_ep_reward = np.mean(finished_episodes) if finished_episodes else float("nan")
 
             os.makedirs("checkpoints", exist_ok=True)
 
-            if self.lap_times:
-                epoch_lap_time = float(np.mean(self.lap_times))
-                print(f"laps this epoch: {len(self.lap_times)} | avg lap time {epoch_lap_time:.2f}s | best {self.best_lap_time:.2f}s")
-                if epoch_lap_time < self.best_lap_time:
-                    self.best_lap_time = epoch_lap_time
-                    self.rl_driver.save_weights("checkpoints/best_lap.weights.h5")
-                    print(f"saved new best-lap model ({epoch_lap_time:.2f}s)")
+            if finished_episodes:
+                reward_history.append(mean_ep_reward)
+
+                # only judge once there are 10 rollouts to smooth over
+                if len(reward_history) >= 10:
+                    avg_reward = np.mean(reward_history[-10:])
+                    if avg_reward > self.best_reward:
+                        self.best_reward = avg_reward
+                        self.rl_driver.save_weights("checkpoints/best.weights.h5")
+                        print(f"saved new best model (10-rollout avg {avg_reward:.2f})")
 
             if epoch % 5 == 0:
                 self.rl_driver.save_weights("checkpoints/latest.weights.h5")
+
+        self.env.close()
 
 if __name__ == "__main__":
     trainer = FormulaRCEnv().train(epochs=10_000, episodes=int(sys.argv[2]))
