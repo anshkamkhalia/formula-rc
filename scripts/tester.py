@@ -10,7 +10,7 @@ from src.rl_driver.v3.rl_driverV3 import build_rl_driver
 n_timesteps = 6
 
 rl_driver = build_rl_driver()
-rl_driver.load_weights("checkpoints/best_lap.weights.h5")
+rl_driver.load_weights("checkpoints/speed_demon.weights.h5")
 
 conf = {
     "exe_path": "remote",

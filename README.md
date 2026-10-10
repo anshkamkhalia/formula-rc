@@ -13,6 +13,17 @@ versions
 > note: changes only encompass the major changes, small extra changes may also have been made
 
 
+## v5:
+
+### changes:
+1. train a VAE to compress images into small tensors
+    - real + sim data
+    - remove noise
+    - augmentations
+2. combine for SAC which works better with smaller data (vae output < raw image)
+3. train on multiple different tracks to ensure generalization
+
+
 ## v4:
 
 ### changes
@@ -21,9 +32,11 @@ versions
 2. optimize for being ahead and overtakes
     - huge reward for overtaking, survival bonux for being in 1st
     - no information on which car is ahead, so we rely on lap time
+3. use tcp client to get incoming telemtry and connection status
 
 - **results**
-    -
+    - model is so overfitted to the exact track that it cant even drive when moved over a little bit
+    - VAE required + multiple tracks
 
 
 ## v3:

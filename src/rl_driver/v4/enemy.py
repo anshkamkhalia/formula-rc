@@ -1,25 +1,16 @@
+import sys
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 import gymnasium as gym
 import gym_donkeycar
 
-config = {
-    "exe_path": "remote",
-    "host": "127.0.0.1",
-    "port": 9091,
-    "body_style": "f1",
-    "body_rgb": (255, 0, 0),
-    "car_name": "enemy",
-    "font_size": 50,
-}
-
 from src.rl_driver.v3.rl_driverV3 import build_rl_driver
 
 n_timesteps = 6
 
 rl_driver = build_rl_driver()
-rl_driver.load_weights("checkpoints/best_lap_completer.weights.h5")
+rl_driver.load_weights("checkpoints/speed_demon.weights.h5")
 
 conf = {
     "exe_path": "remote",
@@ -27,11 +18,12 @@ conf = {
     "cam_resolution": (160, 120, 3),
     "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
     "max_cte": 3.5,
+    "host": "192.168.68.64",
 
     # car appearance
     "body_style": "f1",
     "body_rgb": (71, 71, 71),
-    "car_name": "enemy",
+    "car_name": "rl_driver",
     "font_size": 50,
 }
 
@@ -78,7 +70,7 @@ def utils_action(buffer):
     # convert value from tensors to standard scalars
     return float(steering), float(throttle), float(raw_steering), float(raw_throttle), float(total_log_prob), float(value), pred_buffer
 
-env = gym.make("donkey-generated-track-v0", conf=conf)
+env = gym.make(sys.argv[1], conf=conf)
 frame_buffer = []
 
 try:
@@ -87,7 +79,6 @@ try:
 
     while True:
         steering, throttle, raw_steering, raw_throttle, total_logp, value, inputs = utils_action(frame_buffer)
-        print(steering, throttle)
         obs, _, terminated, truncated, info = env.step([steering, throttle])
 
         frame_buffer.append(obs / 255.0)
@@ -96,7 +87,6 @@ try:
             frame_buffer = frame_buffer[-6:] # take 6 most recent elements
 
         if terminated or truncated:
-            obs, info = env.reset()
             frame_buffer = []
             frame_buffer.append(np.array(obs/255.0, dtype=np.float32))
 finally:
