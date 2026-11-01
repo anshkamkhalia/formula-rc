@@ -1,7 +1,7 @@
 from src.super.rl_driver_ppo_super import RlDriverPPOEnv
 import tensorflow as tf
 import numpy as np
-from src.experiments.raw_frame_ppo.driver import build_rl_driver
+from src.super.driver import build_rl_driver
 
 class RawFramePPO(RlDriverPPOEnv):
 

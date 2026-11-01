@@ -14,7 +14,7 @@ TRIGGER_LIMIT = 10
 BUFFER_MAXLEN = 40
 RESTART_DELAY = 600
 EXIT_DELAY = 5
-IMAGE_PATH = "checkpoints/obs.jpeg"
+IMAGE_PATH = "checkpoints/sac/obs.jpeg"
 FREEZE_LIMIT = 25 * 60        # restart if image unchanged this long (seconds)
 IMAGE_CHECK_INTERVAL = 60     # how often to check the image (seconds)
 

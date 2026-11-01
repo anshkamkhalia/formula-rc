@@ -55,7 +55,7 @@ class RlDriverPPOEnv:
         )
 
         # graphs for convergence
-        self.log_dir = "training_logs"
+        self.log_dir = "training_logs/ppo"
         os.makedirs(self.log_dir, exist_ok=True)
         self.eval_history = [] # one dict per eval: epoch + evaluate() output
         
