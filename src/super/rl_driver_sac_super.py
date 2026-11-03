@@ -51,8 +51,7 @@ class RlDriverSACEnv:
 
         # save best eval model
         # basically we want the most consistent model so we are going to save the one with the lowest crash rate
-        self.best_eval_crash_rate = 1.0 # worst
-        self.save_this_model = False
+        self.best_eval_key = (1.0, float("inf"))
 
         # sim connection state
         self.env = None
@@ -107,6 +106,42 @@ class RlDriverSACEnv:
 
     def process_state(self): # new state based on new observation
         pass # overridden by child
+
+    def model_paths(self, method, tag):
+        d = f"checkpoints/sac/{method}"
+        return {
+            "driver": f"{d}/{tag}_{method}_sac.weights.h5",
+            "q1": f"{d}/{tag}_{method}_sac_q1.weights.h5",
+            "q2": f"{d}/{tag}_{method}_sac_q2.weights.h5",
+            "q1_target": f"{d}/{tag}_{method}_sac_q1_target.weights.h5",
+            "q2_target": f"{d}/{tag}_{method}_sac_q2_target.weights.h5",
+        }
+
+    def save_models(self, method, tag):
+        os.makedirs(f"checkpoints/sac/{method}", exist_ok=True)
+        for name, path in self.model_paths(method, tag).items():
+            getattr(self, name).save_weights(path)
+
+    def load_models(self, method, tag="latest"):
+        paths = self.model_paths(method, tag)
+        if not os.path.exists(paths["driver"]):
+            print(f"no {tag} checkpoint for {method}, starting fresh")
+            return
+
+        self.driver.load_weights(paths["driver"])
+        for name in ("q1", "q2"):
+            if os.path.exists(paths[name]):
+                getattr(self, name).load_weights(paths[name])
+            else:
+                print(f"warning: {name} missing, critic starts fresh")
+
+        for targ, src in (("q1_target", "q1"), ("q2_target", "q2")):
+            if os.path.exists(paths[targ]):
+                getattr(self, targ).load_weights(paths[targ])
+            else:
+                getattr(self, targ).set_weights(getattr(self, src).get_weights())
+
+        print(f"loaded {tag} models for {method}")
 
     def get_action(self, states):
         steer_mu, steer_std_raw, thr_mu, thr_std_raw, _ = self.driver(states, training=True)
@@ -251,9 +286,6 @@ class RlDriverSACEnv:
             "cte": float(np.mean(ctes)),
             "return": float(np.mean(ep_returns)),
         }
-
-        if out["crash_rate"] <= self.best_eval_crash_rate:
-            self.save_this_model = True # save this is the best model so far
 
         return out
 
@@ -445,17 +477,15 @@ class RlDriverSACEnv:
             if self.lap_times:
                 print(f"laps this epoch: {len(self.lap_times)} | avg lap time {np.mean(self.lap_times):.2f}s")
 
-            os.makedirs("checkpoints", exist_ok=True)
-            self.driver.save_weights(f"checkpoints/sac/{method}/latest_{method}_sac.weights.h5")
-            self.q1.save_weights(f"checkpoints/sac/{method}/latest_{method}_sac_q1.weights.h5")
-            self.q2.save_weights(f"checkpoints/sac/{method}/latest_{method}_sac_q2.weights.h5")
-
-            if self.save_this_model:
-                    self.driver.save_weights(f"checkpoints/sac/{method}/best_{method}_sac.weights.h5")
-                    self.q1.save_weights(f"checkpoints/sac/{method}/best_{method}_sac_q1.weights.h5")
-                    self.q2.save_weights(f"checkpoints/sac/{method}/best_{method}_sac_q2.weights.h5")   
+            self.save_models(method, "latest")
 
             metrics = self.evaluate()
+            eval_key = (metrics["crash_rate"], metrics["lap_time"])
+            if eval_key <= self.best_eval_key:
+                self.best_eval_key = eval_key
+                self.save_models(method, "best")
+                print(f"new best model: crash rate {eval_key[0]:.2f}, lap time {eval_key[1]:.2f}s")
+
             self.plot_eval(epoch, metrics, method)
             self.lap_times = [] # keep eval laps out of training stats
             print(f"eval epoch {epoch} | {metrics}")

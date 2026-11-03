@@ -14,7 +14,7 @@ from collections import deque
 
 class RlDriverPPOEnv:
 
-    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=3_000, img_shape=(120, 160, 3), max_ep_steps=2_000):
+    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(120, 160, 3), max_ep_steps=2_000):
 
         self.max_cte = max_cte
         self.tracks = tracks
@@ -38,7 +38,7 @@ class RlDriverPPOEnv:
 
         # save best eval model
         # basically we want the most consistent model so we are going to save the one with the lowest crash rate
-        self.best_eval_crash_rate = 1.0 # 100% crash rate to begin
+        self.best_eval_stats = (1.0, np.inf) # crash rate, lap time
         self.save_this_model = False
         
         self.rl_driver = model
@@ -143,8 +143,9 @@ class RlDriverPPOEnv:
             "return": float(np.mean(ep_returns)),
         }
 
-        if out["crash_rate"] <= self.best_eval_crash_rate:
+        if out["crash_rate"] <= self.best_eval_stats[0] and out["lap_time"] <= self.best_eval_stats[1]: # check crash rate and lap time
             self.save_this_model = True # save this is the best model so far
+            self.best_eval_stats = (out["crash_rate"], out["lap_time"]) # update
 
         return out
 
