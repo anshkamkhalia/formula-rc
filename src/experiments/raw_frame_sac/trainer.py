@@ -33,6 +33,6 @@ class RawFramePPO(RlDriverSACEnv):
 
 if __name__ == "__main__":
     model = build_rl_driver()
-    # model.load_weights("checkpoints/latest_raw_frame_sac.weights.h5")
+    model.load_weights("checkpoints/latest_raw_frame_sac.weights.h5")
     trainer = RawFramePPO(model=model)
     trainer.train(epochs=10_000, method="raw_frame")

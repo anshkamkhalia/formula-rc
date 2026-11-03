@@ -322,24 +322,29 @@ class RlDriverSACEnv:
 
         # critic update
         with tf.GradientTape(persistent=True) as tape:
+
             q1 = self.q1([s, a])[:, 0]
             q2 = self.q2([s, a])[:, 0]
             q1_loss = 0.5 * tf.reduce_mean((q1 - y) ** 2)
             q2_loss = 0.5 * tf.reduce_mean((q2 - y) ** 2)
+
         self.apply(self.q1_optimizer, tape.gradient(q1_loss, self.q1.trainable_variables), self.q1.trainable_variables)
         self.apply(self.q2_optimizer, tape.gradient(q2_loss, self.q2.trainable_variables), self.q2.trainable_variables)
         del tape # clear tape before second use
 
         # actor update
         with tf.GradientTape() as tape:
+
             a_new, logp = self.get_action(s)
             q_new = tf.minimum(self.q1([s, a_new]), self.q2([s, a_new]))[:, 0]
             actor_loss = tf.reduce_mean(alpha * logp - q_new)
+
         self.apply(self.driver_optimizer, tape.gradient(actor_loss, self.driver.trainable_variables), self.driver.trainable_variables)
 
         # temperature update
         with tf.GradientTape() as tape:
             alpha_loss = -tf.reduce_mean(self.log_alpha * tf.stop_gradient(logp + self.target_entropy))
+
         self.apply(self.alpha_optimizer, tape.gradient(alpha_loss, [self.log_alpha]), [self.log_alpha])
 
         # polyak averaging of target critics
@@ -365,44 +370,48 @@ class RlDriverSACEnv:
             
             self.start_sim()
             self.lap_times = []
-            ep_steps, ep_reward = 0, 0.0
             ep_rewards, ep_lengths, ep_crashed = [], [], []
+            track_steps = steps // len(self.tracks) # equal share per track, total steps (and utd) unchanged
 
             # collect experience
-            for step in range(steps):
-                if total_steps < warmup_steps: # random exploration to seed the buffer
-                    steering = float(np.random.uniform(-1.0, 1.0))
-                    throttle = float(np.random.uniform(0.0, 1.0))
-                else:
-                    a, _ = self.get_action(tf.convert_to_tensor(self.state[None], dtype=tf.float32))
-                    steering, throttle = (float(x) for x in a[0].numpy())
+            for track in self.tracks:
+                self.start_sim(track=track) # loads track, resets car, obs buffer and state
+                ep_steps, ep_reward = 0, 0.0
 
-                obs, _, terminated, truncated, info = self.env.step([steering, throttle])
-                ep_steps += 1
-                total_steps += 1
-                reward = self.get_reward(info, ep_steps)
-                ep_reward += reward
+                for step in range(track_steps):
+                    if total_steps < warmup_steps: # random exploration to seed the buffer
+                        steering = float(np.random.uniform(-1.0, 1.0))
+                        throttle = float(np.random.uniform(0.0, 1.0))
+                    else:
+                        a, _ = self.get_action(tf.convert_to_tensor(self.state[None], dtype=tf.float32))
+                        steering, throttle = (float(x) for x in a[0].numpy())
 
-                if ep_steps % 100 == 0:
-                    cv.imwrite("training_logs/obs.jpeg", obs)
+                    obs, _, terminated, truncated, info = self.env.step([steering, throttle])
+                    ep_steps += 1
+                    total_steps += 1
+                    reward = self.get_reward(info, ep_steps)
+                    ep_reward += reward
 
-                if ep_steps >= self.MAX_EP_STEPS and not terminated:
-                    truncated = True
+                    if ep_steps % 100 == 0:
+                        cv.imwrite("training_logs/obs.jpeg", obs)
 
-                self.obs_buffer.append(obs)
-                next_state = np.asarray(self.process_state(), dtype=np.float32)
-                done = float(terminated) # only true terminals cut bootstrapping, truncation doesn't
+                    if ep_steps >= self.MAX_EP_STEPS and not terminated:
+                        truncated = True
 
-                self.replay_buffer.append((self.state.copy(), np.array([steering, throttle], dtype=np.float32),
-                                           np.float32(reward * self.REWARD_SCALE), next_state.copy(), np.float32(done)))
-                self.state = next_state
+                    self.obs_buffer.append(obs)
+                    next_state = np.asarray(self.process_state(), dtype=np.float32)
+                    done = float(terminated) # only true terminals cut bootstrapping, truncation doesn't
 
-                if terminated or truncated:
-                    ep_rewards.append(ep_reward)
-                    ep_lengths.append(ep_steps)
-                    ep_crashed.append(bool(terminated))
-                    ep_steps, ep_reward = 0, 0.0
-                    self.reset_episode()
+                    self.replay_buffer.append((self.state.copy(), np.array([steering, throttle], dtype=np.float32),
+                                               np.float32(reward * self.REWARD_SCALE), next_state.copy(), np.float32(done)))
+                    self.state = next_state
+
+                    if terminated or truncated:
+                        ep_rewards.append(ep_reward)
+                        ep_lengths.append(ep_steps)
+                        ep_crashed.append(bool(terminated))
+                        ep_steps, ep_reward = 0, 0.0
+                        self.start_sim(track=track) # restart on the same track, not a random one
 
             # minibatching and gradient taping
             self.close_sim() # exit scene and disconnect while updating

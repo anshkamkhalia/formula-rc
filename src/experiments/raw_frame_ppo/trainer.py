@@ -19,6 +19,7 @@ class RawFramePPO(RlDriverPPOEnv):
             max_cte=max_cte,
             timesteps=timesteps,
             max_speed=max_speed,
+            track_steps=3_000, # change here?
         )
 
     def process_obs(self, obs):
@@ -26,6 +27,6 @@ class RawFramePPO(RlDriverPPOEnv):
 
 if __name__ == "__main__":
     model = build_rl_driver()
-    model.load_weights("checkpoints/latest_raw_frame_ppo.weights.h5")
+    # model.load_weights("checkpoints/latest_raw_frame_ppo.weights.h5")
     trainer = RawFramePPO(model=model)
     trainer.train(epochs=10_000)

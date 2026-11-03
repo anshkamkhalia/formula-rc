@@ -10,13 +10,16 @@ matplotlib.use("Agg") # no gui
 import matplotlib.pyplot as plt
 import subprocess
 import cv2 as cv
+from collections import deque
 
 class RlDriverPPOEnv:
 
-    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0):
+    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=3_000, img_shape=(120, 160, 3), max_ep_steps=2_000):
 
         self.max_cte = max_cte
         self.tracks = tracks
+        self.track_steps = track_steps
+        self.img_shape = img_shape
 
         # configs
         self.conf = {
@@ -41,8 +44,11 @@ class RlDriverPPOEnv:
         self.prev_laps = 0
         self.lap_times = []
 
+        self.max_ep_steps = max_ep_steps
+
+        self.frame_buffer = deque(maxlen=self.n_timesteps) # this used to be part of the old code but i dont wanna change it everywhere so now the individual track observation buffer becomes this
+
         self.REWARD_SCALE = 0.1
-        self.MAX_EP_STEPS = 2000
 
         # sim binary
         self.sim_binary = os.path.abspath("sim/DonkeySimMac/donkey_sim.app/Contents/MacOS/donkey_sim")
@@ -77,7 +83,8 @@ class RlDriverPPOEnv:
             self.current_track = track
             obs, info = self.env.reset()
 
-        self.frame_buffer = [self.process_obs(obs)]
+        self.frame_buffer.clear()
+        self.frame_buffer.append(self.process_obs(obs))
         return obs, info
 
     def evaluate(self, episodes_per_track=2, max_steps=2000):
@@ -87,6 +94,7 @@ class RlDriverPPOEnv:
 
         for track in self.tracks:
             for _ in range(episodes_per_track):
+                self.frame_buffer.clear()
                 obs, info = self.start_sim(track)
                 env = self.env
                 prev_laps, ep_return, ep_ctes = None, 0.0, []
@@ -94,12 +102,12 @@ class RlDriverPPOEnv:
                 for step in range(1, max_steps + 1):
                     state = self.pad_frame_buffer(self.frame_buffer)
                     steer_mu, _, throttle_mu, _, _ = self.rl_driver(
-                        tf.convert_to_tensor([state], dtype=tf.float32), verbose=1)
-                    steering = float(tf.math.tanh(steer_mu))
+                        tf.convert_to_tensor([state], dtype=tf.float32))
+                    steer = float(tf.math.tanh(steer_mu))
                     throttle = float(tf.math.sigmoid(throttle_mu))
 
-                    obs, _, terminated, truncated, info = env.step([steering, throttle])
-                    self.frame_buffer = (self.frame_buffer + [self.process_obs(obs)])[-self.n_timesteps:]
+                    obs, _, terminated, truncated, info = env.step([steer, throttle])
+                    self.frame_buffer.append(self.process_obs(obs))
 
                     ep_return += self.reward(info, steps=step)
                     ep_ctes.append(abs(info["cte"]))
@@ -157,8 +165,8 @@ class RlDriverPPOEnv:
                 time.sleep(delay)
         raise RuntimeError("sim never came up")
 
-    def restart_episode(self):
-        self.start_sim() # resets if the random pick is the same track, reloads otherwise
+    def restart_episode(self, track):
+        self.start_sim(track=track)
 
     def process_obs(self, obs): # override this for child class
         return obs
@@ -216,26 +224,26 @@ class RlDriverPPOEnv:
         throttle_dist = tfp.distributions.Normal(loc=throttle_mu, scale=throttle_std)
 
         # sample raw actions
-        raw_steering = steer_dist.sample()
+        raw_steer = steer_dist.sample()
         raw_throttle = throttle_dist.sample()
         
         # squash boundaries with tanh and sigmoid
-        steering = tf.math.tanh(raw_steering) # steering is between -1, 1
+        steer = tf.math.tanh(raw_steer) # steering is between -1, 1
         throttle = tf.math.sigmoid(raw_throttle) # throttle between 0, 1
 
         # calculate log probabilities
-        log_prob_steer = steer_dist.log_prob(raw_steering) - tf.math.log(1.0 - steering ** 2 + 1e-6)
+        log_prob_steer = steer_dist.log_prob(raw_steer) - tf.math.log(1.0 - steer ** 2 + 1e-6)
         log_prob_throttle = throttle_dist.log_prob(raw_throttle) - tf.math.log(throttle * (1.0 - throttle) + 1e-6)
 
         # total log probability
         total_log_prob = log_prob_steer + log_prob_throttle
 
         # convert value from tensors to standard scalars
-        return float(steering), float(throttle), float(raw_steering), float(raw_throttle), float(total_log_prob), float(value), pred_buffer
+        return float(steer), float(throttle), float(raw_steer), float(raw_throttle), float(total_log_prob), float(value), pred_buffer
 
     def pad_frame_buffer(self, buffer):
         if len(buffer) < self.n_timesteps:
-            pad = [np.zeros((120, 160, 3), dtype=np.float32)
+            pad = [np.zeros(self.img_shape, dtype=np.uint8)
                 for _ in range(self.n_timesteps - len(buffer))]
             buffer = pad + list(buffer)
         return np.concatenate(buffer, axis=-1)
@@ -293,128 +301,120 @@ class RlDriverPPOEnv:
 
     def train(self, epochs=100, episodes=15, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=4, minibatch_size=128, max_grad_norm=0.5, method="raw_frame", mode="steps"):
 
-        self.frame_buffer = [] # stores last n frames
-        episode_reward = 0.0 # running total for the current episode
+        # new fixed step track switching
+        for epoch in range(epochs+1):
+            print(f"epoch: {epoch}")
 
-        for epoch in range(epochs):
-
-            self.frame_buffer = [] # every epoch reset
-
-            observations = []
-            rewards = []
-            done_vals = []
-            logp_vals = []
-            raw_steerings = []
-            raw_throttles = []
-            values = []
-
-            finished_episodes = []
             finished_lengths = []
             finished_crashed = []
-            episodes_completed = 0
-            episode_steps = 0
 
-            self.lap_times = []
+            main_buffer = { # start each as empty lists and then access by name later
+                "observations": [],
+                "raw_steer": [],
+                "raw_throttle": [],
+                "logp_vals": [],
+                "advantages": [],
+                "returns": [],
+            }
 
-            # create env every epoch
-            self.start_sim()
+            # ok so basically what happens is each track computes the stuff needed for the main buffer and then its cleared and added to that main buffer to be used in training
+            # gae is computer per track to make sure that advantages dont leak between tracks
 
-            self.ovr_steps = 0
-            episode_reward = 0.0
+            for track in self.tracks:
+                track_buffer = { # start each as empty lists and then access by name later
+                    "observations": [],
+                    "raw_steer": [],
+                    "raw_throttle": [],
+                    "logp_vals": [],
+                    "advantages": [],
+                    "returns": [],
 
-            while (episodes_completed < episodes) if mode == "steps" else (self.ovr_steps <= 1_000):
+                    "rewards": [], # not part of main rollout buffer, for gae
+                    "dones": [], # not part of main rollout buffer, for gae
+                    "values": [], # not part of main rollout buffer, for gae
+                }
 
-                # step loop, collect data
-                steering, throttle, raw_steering, raw_throttle, total_logp, value, inputs = self.action() # get action
-                obs, _, terminated, truncated, info = self.env.step([steering, throttle]) # custom reward
+                self.frame_buffer = deque(maxlen=self.n_timesteps) # this is what is fed into our policy, capped at length of self.n_timesteps
+                obs, info = self.start_sim(track=track) # use track instead of randomization (im not changing the function)
 
-                self.ovr_steps += 1
-                episode_steps += 1
+                episode_steps = 0
 
-                if episode_steps % 100 == 0:
-                    cv.imwrite("training_logs/obs.jpeg", obs)
+                for step in range(self.track_steps):
+                    steer, throttle, raw_steer, raw_throttle, logp, value, inputs = self.action()
+                    obs, _, terminated, truncated, info = self.env.step([steer, throttle]) # action (we dont need the default reward)
+                    obs = self.process_obs(obs) # get new obs
+                    self.frame_buffer.append(obs)
+                    episode_steps += 1
+                    new_reward = self.reward(info, episode_steps) # per-episode step, first step == 1
 
-                obs = self.process_obs(obs)
-                self.frame_buffer.append(obs)
+                    # a crash always wins over truncation
+                    truncated = (truncated or episode_steps >= self.max_ep_steps) and not terminated
 
-                if len(self.frame_buffer) > self.n_timesteps:
-                    self.frame_buffer = self.frame_buffer[-self.n_timesteps:]
-                step_reward = self.reward(info, steps=episode_steps) # calculate custom reward
-                episode_reward += step_reward
+                    track_buffer["observations"].append(inputs)
+                    track_buffer["raw_steer"].append(raw_steer)
+                    track_buffer["raw_throttle"].append(raw_throttle)
+                    track_buffer["logp_vals"].append(logp)
+                    track_buffer["rewards"].append(new_reward * self.REWARD_SCALE)
+                    track_buffer["values"].append(value)
+                    track_buffer["dones"].append(terminated or truncated)
 
-                if episode_steps >= self.MAX_EP_STEPS and not terminated:
-                    truncated = True
+                    # no advantages or returns yet, computed during gae
 
-                # data collection for rollout buffer
-                observations.append(np.round(inputs * 255).astype(np.uint8))
-                rewards.append(step_reward * self.REWARD_SCALE)
-                done_vals.append(terminated or truncated)
-                if terminated or truncated:
-                    finished_episodes.append(episode_reward) # total return, not per-step
-                    finished_lengths.append(episode_steps)
-                    finished_crashed.append(bool(terminated))
-                    episode_reward = 0.0
+                    # decide truncation first, then bootstrap, log, restart
+                    if terminated or truncated:
+                        if truncated:
+                            track_buffer["rewards"][-1] += gamma * self.run_critic_on_truncated()
 
-                logp_vals.append(total_logp)
-                raw_throttles.append(raw_throttle)
-                raw_steerings.append(raw_steering)
-                values.append(value)
+                        finished_lengths.append(episode_steps)
+                        finished_crashed.append(bool(terminated))
+                        print(f"{track}: {'crash' if terminated else 'time limit'}, "
+                              f"cte {info['cte']:.2f}, len {episode_steps}")
 
-                if terminated:
-                    cte = info["cte"]
-                    self.restart_episode()
-                    print(f"restarting, cte of {cte}")
-                    episode_steps = 0
-                    episodes_completed += 1
+                        self.restart_episode(track=track)
+                        episode_steps = 0
 
-                elif truncated:
-                    last_value = gamma * self.run_critic_on_truncated()
-                    rewards[-1] += last_value
-                    cte = info["cte"]
-                    self.restart_episode()
-                    print(f"restarting, cte of {cte}")
-                    episode_steps = 0
-                    episodes_completed += 1
+                end_of_rollout = self.run_critic_on_truncated()
+                self.close_sim()
 
-            end_of_rollout = self.run_critic_on_truncated()
+                # gae
+                rewards = np.array(track_buffer["rewards"], dtype=np.float32)
+                values = np.array(track_buffer["values"], dtype=np.float32)
+                dones = np.array(track_buffer["dones"], dtype=np.float32)
 
-            episode_steps = 0
-            self.close_sim()  # exit scene and disconnect while updating
+                advantages = np.zeros_like(rewards)
+                last_adv = 0.0
 
-            # gae
+                for t in reversed(range(len(rewards))):
+                    if t == len(rewards) - 1:
+                        next_value = end_of_rollout
+                        next_non_terminal = 1.0 - dones[t] 
+                    else:
+                        next_value = values[t + 1]
+                        next_non_terminal = 1.0 - dones[t]
 
-            # convert to arrays instead of python lists
-            rewards_arr = np.array(rewards, dtype=np.float32)
-            values_arr = np.array(values, dtype=np.float32)
-            dones_arr = np.array(done_vals, dtype=np.float32)
+                    delta = rewards[t] + gamma * next_value * next_non_terminal - values[t]
+                    
+                    last_adv = delta + gamma * lam * next_non_terminal * last_adv
+                    advantages[t] = last_adv
 
-            advantages = np.zeros_like(rewards_arr)
-            last_adv = 0.0
+                returns = advantages + values # do not normalize critic targets
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)            
+                track_buffer["advantages"] = advantages
+                track_buffer["returns"] = returns
 
-            for t in reversed(range(len(rewards_arr))):
-                if t == len(rewards_arr) - 1:
-                    next_value = end_of_rollout
-                else:
-                    next_value = values_arr[t + 1]
+                # add track buffer to main buffer
+                main_buffer["observations"].extend(track_buffer["observations"])
+                main_buffer["raw_steer"].extend(track_buffer["raw_steer"])
+                main_buffer["raw_throttle"].extend(track_buffer["raw_throttle"])
+                main_buffer["logp_vals"].extend(track_buffer["logp_vals"])
+                main_buffer["advantages"].extend(track_buffer["advantages"])
+                main_buffer["returns"].extend(track_buffer["returns"])
 
-                non_terminal = 1.0 - dones_arr[t]
-                delta = rewards_arr[t] + gamma * next_value * non_terminal - values_arr[t]
-                last_adv = delta + gamma * lam * non_terminal * last_adv
-                advantages[t] = last_adv
+            main_buffer["observations"] = np.array(main_buffer["observations"])
+            for k in ["raw_steer", "raw_throttle", "logp_vals", "advantages", "returns"]:
+                main_buffer[k] = tf.constant(main_buffer[k], dtype=tf.float32)
 
-            returns = advantages + values_arr # do not normalize critic targets
-            expl_var = 1.0 - np.var(returns - values_arr) / (np.var(returns) + 1e-8)
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)            
-
-            # convert data to tensors
-            returns = tf.convert_to_tensor(returns, dtype=tf.float32)
-            advantages = tf.convert_to_tensor(advantages, dtype=tf.float32)
-            old_logp = tf.convert_to_tensor(logp_vals, dtype=tf.float32)
-            raw_steerings = tf.convert_to_tensor(raw_steerings, dtype=tf.float32)
-            raw_throttles = tf.convert_to_tensor(raw_throttles, dtype=tf.float32)
-            observations = np.stack(observations)
-
-            n = observations.shape[0]
+            n = main_buffer["observations"].shape[0]
             stats = {"kl": [], "clip": [], "policy": [], "value": [], "entropy": [], "grad_norm": []}
 
             for ppo_epoch in range(ppo_epochs):
@@ -426,12 +426,12 @@ class RlDriverPPOEnv:
                     idx = indices[start:start + minibatch_size]
 
                     # gather the minibatch
-                    mb_obs = tf.convert_to_tensor(observations[idx.numpy()], dtype=tf.float32) / 255.0
-                    mb_raw_steer = tf.gather(raw_steerings, idx)
-                    mb_raw_throttle = tf.gather(raw_throttles, idx)
-                    mb_old_logp = tf.gather(old_logp, idx)
-                    mb_adv = tf.gather(advantages, idx)
-                    mb_returns = tf.gather(returns, idx)
+                    mb_obs = tf.convert_to_tensor((main_buffer["observations"][idx.numpy()]), dtype=tf.float32)
+                    mb_raw_steer = tf.gather(main_buffer["raw_steer"], idx)
+                    mb_raw_throttle = tf.gather(main_buffer["raw_throttle"], idx)
+                    mb_old_logp = tf.gather(main_buffer["logp_vals"], idx)
+                    mb_adv = tf.gather(main_buffer["advantages"], idx)
+                    mb_returns = tf.gather(main_buffer["returns"], idx)
 
                     # gradient tape
                     with tf.GradientTape() as tape:
@@ -497,7 +497,6 @@ class RlDriverPPOEnv:
                     stats["value"].append(float(value_loss))
                     stats["entropy"].append(float(entropy))
                     stats["grad_norm"].append(float(grad_norm))
-                    mean_ep_reward = np.mean(finished_episodes) if finished_episodes else float("nan")
 
                     # regression test: first minibatch of first pass should have ratio close to 1
                     if ppo_epoch == 0 and start == 0:
@@ -509,12 +508,11 @@ class RlDriverPPOEnv:
                     print(f"stopping, approx kl is: {kl/n_kl}")
                     break
 
-            mean_ep_reward = np.mean(finished_episodes) if finished_episodes else float("nan")
             mean_len = np.mean(finished_lengths) if finished_lengths else float("nan")
             crash_rate = np.mean(finished_crashed) if finished_crashed else float("nan")
 
             print(
-                f"epoch {epoch} | episodes {len(finished_episodes)} | mean return {mean_ep_reward:.1f} | "
+                f"epoch {epoch} "
                 f"mean len {mean_len:.0f} | crash rate {crash_rate:.2f} | "
                 f"updates {len(stats['kl'])} | kl {np.mean(stats['kl']):.4f} |"
                 f"policy {np.mean(stats['policy']):.4f} | value {np.mean(stats['value']):.3f} | "
