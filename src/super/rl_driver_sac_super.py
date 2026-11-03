@@ -49,6 +49,11 @@ class RlDriverSACEnv:
         self.lap_times = []
         self.obs_buffer = deque(maxlen=50) # needed if evaluate() is called before train()
 
+        # save best eval model
+        # basically we want the most consistent model so we are going to save the one with the lowest crash rate
+        self.best_eval_crash_rate = 1.0 # worst
+        self.save_this_model = False
+
         # sim connection state
         self.env = None
         self.current_track = None
@@ -203,50 +208,54 @@ class RlDriverSACEnv:
         successful_laps = 0
         crashed_laps = 0
 
-        for track in self.tracks:
-            for _ in range(episodes_per_track):
-                self.start_sim(track)
-                prev_laps, ep_return, ep_ctes = None, 0.0, []
+        for _ in range(episodes_per_track):
+            self.start_sim(track="donkey-minimonaco-track")
+            prev_laps, ep_return, ep_ctes = None, 0.0, []
 
-                for step in range(1, max_steps + 1):
-                    steer_mu, _, thr_mu, _, _ = self.driver(
-                        tf.convert_to_tensor(self.state[None], dtype=tf.float32), training=False)
-                    steering = float(tf.math.tanh(steer_mu)[0, 0]) # deterministic action
-                    throttle = float(tf.math.sigmoid(thr_mu)[0, 0])
+            for step in range(1, max_steps + 1):
+                steer_mu, _, thr_mu, _, _ = self.driver(
+                    tf.convert_to_tensor(self.state[None], dtype=tf.float32), training=False)
+                steering = float(tf.math.tanh(steer_mu)[0, 0]) # deterministic action
+                throttle = float(tf.math.sigmoid(thr_mu)[0, 0])
 
-                    obs, _, terminated, truncated, info = self.env.step([steering, throttle])
-                    self.obs_buffer.append(obs)
-                    self.state = np.asarray(self.process_state(), dtype=np.float32)
+                obs, _, terminated, truncated, info = self.env.step([steering, throttle])
+                self.obs_buffer.append(obs)
+                self.state = np.asarray(self.process_state(), dtype=np.float32)
 
-                    ep_return += self.get_reward(info, step)
-                    ep_ctes.append(abs(info["cte"]))
+                ep_return += self.get_reward(info, step)
+                ep_ctes.append(abs(info["cte"]))
 
-                    if prev_laps is None:
-                        prev_laps = info["lap_count"]
-                    elif info["lap_count"] > prev_laps:
-                        successful_laps += info["lap_count"] - prev_laps
-                        prev_laps = info["lap_count"]
-                        lt = float(info.get("last_lap_time", 0.0))
-                        if lt > 0:
-                            lap_times.append(lt)
+                if prev_laps is None:
+                    prev_laps = info["lap_count"]
+                elif info["lap_count"] > prev_laps:
+                    successful_laps += info["lap_count"] - prev_laps
+                    prev_laps = info["lap_count"]
+                    lt = float(info.get("last_lap_time", 0.0))
+                    if lt > 0:
+                        lap_times.append(lt)
 
-                    if terminated:
-                        crashed_laps += 1
-                        break
-                    if truncated:
-                        break
+                if terminated:
+                    crashed_laps += 1
+                    break
+                if truncated:
+                    break
 
-                ctes.append(np.mean(ep_ctes))
-                ep_returns.append(ep_return)
+            ctes.append(np.mean(ep_ctes))
+            ep_returns.append(ep_return)
 
         self.close_sim()
         attempts = crashed_laps + successful_laps
-        return {
-            "crash_rate": crashed_laps / attempts if attempts > 0 else 1.0,
+        out = {
+            "crash_rate": crashed_laps / attempts if attempts > 0 else 1.0,  # lower is better
             "lap_time": float(np.mean(lap_times)) if lap_times else 60.0,
             "cte": float(np.mean(ctes)),
             "return": float(np.mean(ep_returns)),
         }
+
+        if out["crash_rate"] <= self.best_eval_crash_rate:
+            self.save_this_model = True # save this is the best model so far
+
+        return out
 
     def plot_eval(self, epoch, metrics, method):
         os.makedirs(self.log_dir, exist_ok=True)
@@ -417,15 +426,18 @@ class RlDriverSACEnv:
             self.close_sim() # exit scene and disconnect while updating
             losses = []
             for _ in range(updates_per_epoch):
+
                 idx = np.random.randint(len(self.replay_buffer), size=batch_size)
                 batch = [self.replay_buffer[i] for i in idx]
                 s, a, r, s2, d = (tf.convert_to_tensor(np.stack(x), dtype=tf.float32) for x in zip(*batch))
                 losses.append([float(v) for v in self.update(s, a, r, s2, d)])
 
             q1_l, q2_l, pi_l, alpha = np.mean(losses, axis=0)
+
             mean_ep = np.mean(ep_rewards) if ep_rewards else float("nan")
             mean_len = np.mean(ep_lengths) if ep_lengths else float("nan")
             crash_rate = np.mean(ep_crashed) if ep_crashed else float("nan")
+
             print(f"epoch {epoch} | episodes {len(ep_rewards)} | mean return {mean_ep:.1f} | "
                   f"mean len {mean_len:.0f} | crash rate {crash_rate:.2f} | q1 {q1_l:.3f} | q2 {q2_l:.3f} | "
                   f"actor {pi_l:.3f} | alpha {alpha:.4f} | buffer {len(self.replay_buffer)}")
@@ -434,9 +446,14 @@ class RlDriverSACEnv:
                 print(f"laps this epoch: {len(self.lap_times)} | avg lap time {np.mean(self.lap_times):.2f}s")
 
             os.makedirs("checkpoints", exist_ok=True)
-            self.driver.save_weights(f"checkpoints/latest_{method}_sac.weights.h5")
-            self.q1.save_weights(f"checkpoints/latest_{method}_sac_q1.weights.h5")
-            self.q2.save_weights(f"checkpoints/latest_{method}_sac_q2.weights.h5")
+            self.driver.save_weights(f"checkpoints/sac/{method}/latest_{method}_sac.weights.h5")
+            self.q1.save_weights(f"checkpoints/sac/{method}/latest_{method}_sac_q1.weights.h5")
+            self.q2.save_weights(f"checkpoints/sac/{method}/latest_{method}_sac_q2.weights.h5")
+
+            if self.save_this_model:
+                    self.driver.save_weights(f"checkpoints/sac/{method}/best_{method}_sac.weights.h5")
+                    self.q1.save_weights(f"checkpoints/sac/{method}/best_{method}_sac_q1.weights.h5")
+                    self.q2.save_weights(f"checkpoints/sac/{method}/best_{method}_sac_q2.weights.h5")   
 
             metrics = self.evaluate()
             self.plot_eval(epoch, metrics, method)
@@ -448,6 +465,7 @@ class RlDriverSACEnv:
             if (epoch + 1) % 7 == 0:
                 print("\nwaiting longer\n")
                 time.sleep(300)
+
             print("\nwaiting\n")
             time.sleep(60)
             subprocess.Popen([self.sim_binary], start_new_session=True,

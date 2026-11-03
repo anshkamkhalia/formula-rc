@@ -35,6 +35,11 @@ class RlDriverPPOEnv:
             "car_name": "rl_driver",
             "font_size": 50,
         }
+
+        # save best eval model
+        # basically we want the most consistent model so we are going to save the one with the lowest crash rate
+        self.best_eval_crash_rate = 1.0 # 100% crash rate to begin
+        self.save_this_model = False
         
         self.rl_driver = model
         self.n_timesteps = timesteps
@@ -92,52 +97,56 @@ class RlDriverPPOEnv:
         successful_laps = 0
         crashed_laps = 0
 
-        for track in self.tracks:
-            for _ in range(episodes_per_track):
-                self.frame_buffer.clear()
-                obs, info = self.start_sim(track)
-                env = self.env
-                prev_laps, ep_return, ep_ctes = None, 0.0, []
+        for _ in range(episodes_per_track):
+            self.frame_buffer.clear()
+            obs, info = self.start_sim(track="donkey-minimonaco-track") # use eval track
+            env = self.env
+            prev_laps, ep_return, ep_ctes = None, 0.0, []
 
-                for step in range(1, max_steps + 1):
-                    state = self.pad_frame_buffer(self.frame_buffer)
-                    steer_mu, _, throttle_mu, _, _ = self.rl_driver(
-                        tf.convert_to_tensor([state], dtype=tf.float32))
-                    steer = float(tf.math.tanh(steer_mu))
-                    throttle = float(tf.math.sigmoid(throttle_mu))
+            for step in range(1, max_steps + 1):
+                state = self.pad_frame_buffer(self.frame_buffer)
+                steer_mu, _, throttle_mu, _, _ = self.rl_driver(
+                    tf.convert_to_tensor([state], dtype=tf.float32))
+                steer = float(tf.math.tanh(steer_mu))
+                throttle = float(tf.math.sigmoid(throttle_mu))
 
-                    obs, _, terminated, truncated, info = env.step([steer, throttle])
-                    self.frame_buffer.append(self.process_obs(obs))
+                obs, _, terminated, truncated, info = env.step([steer, throttle])
+                self.frame_buffer.append(self.process_obs(obs))
 
-                    ep_return += self.reward(info, steps=step)
-                    ep_ctes.append(abs(info["cte"]))
+                ep_return += self.reward(info, steps=step)
+                ep_ctes.append(abs(info["cte"]))
 
-                    if prev_laps is None:
-                        prev_laps = info["lap_count"]
-                    elif info["lap_count"] > prev_laps:
-                        successful_laps += info["lap_count"] - prev_laps # count the lap even if time is missing
-                        prev_laps = info["lap_count"]
-                        lt = float(info.get("last_lap_time", 0.0))
-                        if lt > 0:
-                            lap_times.append(lt)
+                if prev_laps is None:
+                    prev_laps = info["lap_count"]
+                elif info["lap_count"] > prev_laps:
+                    successful_laps += info["lap_count"] - prev_laps # count the lap even if time is missing
+                    prev_laps = info["lap_count"]
+                    lt = float(info.get("last_lap_time", 0.0))
+                    if lt > 0:
+                        lap_times.append(lt)
 
-                    if terminated:
-                        crashed_laps += 1 # the lap in progress failed
-                        break
-                    if truncated:
-                        break # unfinished lap, not a crash (excluded)
+                if terminated:
+                    crashed_laps += 1 # the lap in progress failed
+                    break
+                if truncated:
+                    break # unfinished lap, not a crash (excluded)
 
-                ctes.append(np.mean(ep_ctes))
-                ep_returns.append(ep_return)
+            ctes.append(np.mean(ep_ctes))
+            ep_returns.append(ep_return)
 
         self.close_sim()
         attempts = crashed_laps + successful_laps
-        return {
+        out = {
             "crash_rate": crashed_laps / attempts if attempts > 0 else 1.0,  # lower is better
             "lap_time": float(np.mean(lap_times)) if lap_times else 60.0,
             "cte": float(np.mean(ctes)),
             "return": float(np.mean(ep_returns)),
         }
+
+        if out["crash_rate"] <= self.best_eval_crash_rate:
+            self.save_this_model = True # save this is the best model so far
+
+        return out
 
     def close_sim(self):
         if self.env is None:
@@ -526,6 +535,11 @@ class RlDriverPPOEnv:
                 print(f"laps this epoch: {len(self.lap_times)} | avg lap time {epoch_lap_time:.2f}s")
 
             self.rl_driver.save_weights(f"checkpoints/latest_{method}_ppo.weights.h5")
+
+            if self.save_this_model:
+                self.rl_driver.save_weights(f"checkpoints/best_{method}_ppo.weights.h5")
+                self.save_this_model = False
+
             metrics = self.evaluate()
             self.plot_eval(epoch, metrics, method)
             self.lap_times = [] # keep eval laps out of training stats
