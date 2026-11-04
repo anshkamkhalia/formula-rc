@@ -69,6 +69,8 @@ class RlDriverSACEnv:
             "cam_resolution": (160, 120, 3),
             "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
             "max_cte": self.max_cte,
+            "throttle_min": -1.0,
+            "throttle_max": 1.0,
 
             # car appearance
             "body_style": "f1", 
@@ -151,10 +153,10 @@ class RlDriverSACEnv:
         raw_s = steer_mu + steer_std * tf.random.normal(tf.shape(steer_mu))
         raw_t = thr_mu + thr_std * tf.random.normal(tf.shape(thr_mu))
         steer = tf.math.tanh(raw_s)
-        thr = tf.math.sigmoid(raw_t)
+        thr = tf.math.tanh(raw_t)
 
         logp_s = tfp.distributions.Normal(steer_mu, steer_std).log_prob(raw_s) - tf.math.log(1.0 - steer ** 2 + 1e-6)
-        logp_t = tfp.distributions.Normal(thr_mu, thr_std).log_prob(raw_t) - tf.math.log(thr * (1.0 - thr) + 1e-6)
+        logp_t = tfp.distributions.Normal(thr_mu, thr_std).log_prob(raw_t) - tf.math.log(1.0 - thr ** 2 + 1e-6)
 
         actions = tf.concat([tf.reshape(steer, [-1, 1]), tf.reshape(thr, [-1, 1])], axis=1)
         logp = tf.reshape(logp_s, [-1]) + tf.reshape(logp_t, [-1])
@@ -175,7 +177,9 @@ class RlDriverSACEnv:
     def get_reward(self, info, steps):
         max_cte = self.max_cte
         cte = abs(info["cte"])
-        speed = float(np.clip(info["speed"], 0.0, self.max_speed))
+        speed = float(np.clip(info["speed"], -self.max_speed, self.max_speed))
+        if abs(speed) <= 0.005:
+            speed = 0.0
         laps = info["lap_count"]
 
         # new episode: sync to whatever the sim reports (prevents a phantom lap bonus)
@@ -185,6 +189,9 @@ class RlDriverSACEnv:
         # terminal penalties
         if cte > max_cte or info["hit"] != "none":
             return -20.0
+
+        if speed < 0.0:
+            return -8.0 - 15.0 * (abs(speed) / self.max_speed)
 
         speed_norm = speed / self.max_speed
         centering = max(0.0, 1.0 - (cte / max_cte) ** 2)
@@ -251,7 +258,7 @@ class RlDriverSACEnv:
                 steer_mu, _, thr_mu, _, _ = self.driver(
                     tf.convert_to_tensor(self.state[None], dtype=tf.float32), training=False)
                 steering = float(tf.math.tanh(steer_mu)[0, 0]) # deterministic action
-                throttle = float(tf.math.sigmoid(thr_mu)[0, 0])
+                throttle = float(tf.math.tanh(thr_mu)[0, 0])
 
                 obs, _, terminated, truncated, info = self.env.step([steering, throttle])
                 self.obs_buffer.append(obs)
@@ -422,7 +429,7 @@ class RlDriverSACEnv:
                 for step in range(track_steps):
                     if total_steps < warmup_steps: # random exploration to seed the buffer
                         steering = float(np.random.uniform(-1.0, 1.0))
-                        throttle = float(np.random.uniform(0.0, 1.0))
+                        throttle = float(np.random.uniform(-1.0, 1.0))
                     else:
                         a, _ = self.get_action(tf.convert_to_tensor(self.state[None], dtype=tf.float32))
                         steering, throttle = (float(x) for x in a[0].numpy())
