@@ -58,6 +58,8 @@ class RlDriverPPOEnv:
 
         self.REWARD_SCALE = 0.1
 
+        self.throttle_min = -0.5 # max braking strength after remapping
+
         # sim binary
         self.sim_binary = os.path.abspath("sim/DonkeySimMac/donkey_sim.app/Contents/MacOS/donkey_sim")
 
@@ -77,10 +79,22 @@ class RlDriverPPOEnv:
         self.env = None
         self.current_track = None
 
+    # maps tanh output [-1, 1] to [throttle_min, 1], so raw 0 -> ~0.35 forward throttle
+    def map_throttle(self, t):
+        return self.throttle_min + (t + 1.0) * 0.5 * (1.0 - self.throttle_min)
+
     def get_speeds(self):
         while len(self.speed_buffer) < self.n_timesteps:
             self.speed_buffer.appendleft(0.0)  # not moving
         return np.array(self.speed_buffer, dtype=np.float32) / self.max_speed  # signed, roughly -1..1
+
+    def safe_throttle(self, throttle, min_speed=0.1):
+        
+        # allow braking while moving forward, block reverse once (nearly) stopped
+        speed = self.speed_buffer[-1] if self.speed_buffer else 0.0
+        if speed <= min_speed:
+            return max(throttle, 0.0)
+        return throttle
 
     def start_sim(self, track=None):
         if track is None:
@@ -118,13 +132,14 @@ class RlDriverPPOEnv:
                 state = self.pad_buffers(self.frame_buffer)
                 speeds = self.get_speeds()
                 steer_mu, _, throttle_mu, _, _ = self.rl_driver(
-                    tf.convert_to_tensor([state], dtype=tf.float32),
-                    tf.convert_to_tensor([speeds], dtype=tf.float32),
+                    [tf.convert_to_tensor([state], dtype=tf.float32),
+                    tf.convert_to_tensor([speeds], dtype=tf.float32)],
+                    training=False,
                 )
                 steer = float(tf.math.tanh(steer_mu))
-                throttle = float(tf.math.tanh(throttle_mu))
+                throttle = self.map_throttle(float(tf.math.tanh(throttle_mu))) # remap throttle
 
-                obs, _, terminated, truncated, info = env.step([steer, throttle])
+                obs, _, terminated, truncated, info = env.step([steer, self.safe_throttle(throttle)])
                 self.frame_buffer.append(self.process_obs(obs))
                 self.speed_buffer.append(info["speed"])
 
@@ -240,7 +255,9 @@ class RlDriverPPOEnv:
         # convert to tensor and action
         state_tensor = tf.convert_to_tensor([pred_buffer], dtype=tf.float32)
         speed_tensor = tf.convert_to_tensor([speeds])
-        steer_mu, steer_raw_std, throttle_mu, throttle_std_raw, value = self.rl_driver(state_tensor, speed_tensor)
+        steer_mu, steer_raw_std, throttle_mu, throttle_std_raw, value = self.rl_driver(
+            [state_tensor, speed_tensor], training=False
+        )
 
         # enforce positive deviations
         steer_std = self.make_std(steer_raw_std)
@@ -263,7 +280,7 @@ class RlDriverPPOEnv:
         log_prob_throttle = throttle_dist.log_prob(raw_throttle) - tf.math.log(1.0 - throttle ** 2 + 1e-6)
         total_log_prob = log_prob_steer + log_prob_throttle
 
-        return (float(steer), float(throttle), float(raw_steer), float(raw_throttle),
+        return (float(steer), float(self.map_throttle(throttle)), float(raw_steer), float(raw_throttle), # remap throttle
                 float(total_log_prob), float(value), pred_buffer, speeds)
 
     def pad_buffers(self, buffer):
@@ -273,7 +290,7 @@ class RlDriverPPOEnv:
             buffer = pad + list(buffer)
         return np.concatenate(buffer, axis=-1)
     
-    def reward(self, info, steps):
+    def reward(self, info, steps, train=False, epoch=None):
         max_cte = self.max_cte
         cte = abs(info["cte"])
 
@@ -289,21 +306,16 @@ class RlDriverPPOEnv:
 
         # terminal penalty
         if cte > max_cte or info["hit"] != "none":
-            return -30.0
-
-        # penalty grows with reverse speed, no driving reward this step
-        if speed < 0.0:
-            return -8.0 - 15.0 * (abs(speed) / self.max_speed)
+            return -10.0 # was -30.0
 
         speed_norm = speed / self.max_speed
         centering = max(0.0, 1.0 - (cte / max_cte) ** 2)
 
-        curr_reward = 1.5 * speed_norm * centering
+        curr_reward = 2.0 * speed_norm * centering
         curr_reward -= 0.5 * (cte / max_cte) ** 2
 
-        # small penalty that shrinks as speed approaches 1.0 when slow or stopped
-        if speed < 1.0:
-            curr_reward -= 1.0 * (1.0 - speed)
+        if speed < 0.3:
+            curr_reward -= 0.3
 
         lap_time = float(info.get("last_lap_time", 0.0))
 
@@ -328,7 +340,7 @@ class RlDriverPPOEnv:
         pred_buffer = self.pad_buffers(self.frame_buffer)
         state_tensor = tf.convert_to_tensor([pred_buffer], dtype=tf.float32)
         speed_tensor = tf.convert_to_tensor([self.get_speeds()], dtype=tf.float32)
-        _, _, _, _, value = self.rl_driver(state_tensor, speed_tensor)
+        _, _, _, _, value = self.rl_driver([state_tensor, speed_tensor], training=False)
         return float(value[0][0])
 
     def train(self, epochs=100, episodes=15, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=4, minibatch_size=128, max_grad_norm=0.5, method="raw_frame", mode="steps"):
@@ -374,15 +386,20 @@ class RlDriverPPOEnv:
                 obs, info = self.start_sim(track=track) # use track instead of randomization (im not changing the function)
 
                 episode_steps = 0
+                prev_throttle = 0.0 # for throttle change penalty
 
                 for step in range(self.track_steps):
                     steer, throttle, raw_steer, raw_throttle, logp, value, inputs, speeds = self.action()
+                    throttle = self.safe_throttle(throttle)
                     obs, _, terminated, truncated, info = self.env.step([steer, throttle])
                     obs = self.process_obs(obs)
                     self.frame_buffer.append(obs)
                     self.speed_buffer.append(info["speed"]) # keep speeds in sync with frames
                     episode_steps += 1
                     new_reward = self.reward(info, episode_steps)
+
+                    new_reward -= 0.3 * abs(throttle - prev_throttle) # penalize gas/brake flip-flopping
+                    prev_throttle = throttle
 
                     truncated = (truncated or episode_steps >= self.max_ep_steps) and not terminated
 
@@ -409,6 +426,7 @@ class RlDriverPPOEnv:
 
                         self.restart_episode(track=track)
                         episode_steps = 0
+                        prev_throttle = 0.0
 
                 end_of_rollout = self.run_critic_on_truncated()
                 self.close_sim()
@@ -477,7 +495,9 @@ class RlDriverPPOEnv:
                     with tf.GradientTape() as tape:
                         
                         # forward pass
-                        steer_mu, steer_std_raw, throttle_mu, throttle_std_raw, new_value = self.rl_driver(mb_obs, mb_speeds)
+                        steer_mu, steer_std_raw, throttle_mu, throttle_std_raw, new_value = self.rl_driver(
+                            [mb_obs, mb_speeds], training=True
+                        )
 
                         # squeeze everything
                         steer_mu = tf.squeeze(steer_mu, axis=-1)

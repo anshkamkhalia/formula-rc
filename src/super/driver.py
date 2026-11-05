@@ -3,7 +3,7 @@ import tensorflow as tf
 def build_rl_driver(timesteps=6):
 
     vision_input = tf.keras.Input(shape=(120, 160, 3 * timesteps))
-    speed_input = tf.keras.Input(shape=(1,)) # just speed in m/s
+    speed_input = tf.keras.Input(shape=(timesteps,), name="speeds")  # last `timesteps` speeds, normalized by max_speed
 
     speed_features = tf.keras.layers.Dense(32, activation="relu")(speed_input)
 
@@ -16,7 +16,7 @@ def build_rl_driver(timesteps=6):
 
     merged_features = tf.keras.layers.Concatenate()([flattened, speed_features]) # concatenate
 
-    x = tf.keras.layers.Dense(32, activation="relu")(merged_features)
+    x = tf.keras.layers.Dense(256, activation="relu")(merged_features)
     x = tf.keras.layers.Dense(64, activation="relu")(x)
 
     # steering distribution
@@ -28,7 +28,8 @@ def build_rl_driver(timesteps=6):
     throttle_std_raw = tf.keras.layers.Dense(1, activation=None, name="throttle_std_raw")(x)
 
     # critic dense
-    x = tf.keras.layers.Dense(32, activation="relu")(flattened)
+    x = tf.keras.layers.Dense(64, activation="relu")(merged_features)
+    x = tf.keras.layers.Dense(32, activation="relu")(x)
 
     # value for ppo
     value = tf.keras.layers.Dense(1, activation=None, name="value")(x)
