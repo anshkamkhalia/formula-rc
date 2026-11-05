@@ -14,12 +14,20 @@ from collections import deque
 
 class RlDriverPPOEnv:
 
-    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(120, 160, 3), max_ep_steps=2_000):
+    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(120, 160, 3), max_ep_steps=2_000, throttle_mode="coast", randomize_generated=True, regen_every="block", regen_settle=2.0, track_seed=None):
 
         self.max_cte = max_cte
         self.tracks = tracks
         self.track_steps = track_steps
         self.img_shape = img_shape
+        self.throttle_mode = throttle_mode # coast or brake
+
+        self.map_min = -0.35 # shared mapping floor, identical in both modes
+
+        if throttle_mode == "brake":
+            self.throttle_min = self.map_min # sim accepts braking
+        else:
+            self.throttle_min = 0.0 # sim never sees negative throttle
 
         # configs
         self.conf = {
@@ -28,7 +36,7 @@ class RlDriverPPOEnv:
             "cam_resolution": (160, 120, 3),
             "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
             "max_cte": self.max_cte,
-            "throttle_min": -1.0, # brake/reverse
+            "throttle_min": self.throttle_min, # brake/reverse
             "throttle_max": 1.0, 
 
             # car appearance
@@ -51,14 +59,19 @@ class RlDriverPPOEnv:
         self.prev_laps = 0
         self.lap_times = []
 
+        # stall handling
+        self.slow_speed = 0.3 # one threshold for the penalty and the stall timeout
+        self.stall_limit = 40 # consecutive slow steps before a stall ends the episode
+        self.stall_grace = 60 # steps at episode start where stalls aren't checked (launch)
+        self.full_brake_speed = 2.0 # speed at or above which full braking is allowed
+        self.stall_steps = 0
+
         self.max_ep_steps = max_ep_steps
 
         self.frame_buffer = deque(maxlen=self.n_timesteps) # this used to be part of the old code but i dont wanna change it everywhere so now the individual track observation buffer becomes this
         self.speed_buffer = deque(maxlen=self.n_timesteps) # new
 
         self.REWARD_SCALE = 0.1
-
-        self.throttle_min = -0.5 # max braking strength after remapping
 
         # sim binary
         self.sim_binary = os.path.abspath("sim/DonkeySimMac/donkey_sim.app/Contents/MacOS/donkey_sim")
@@ -79,27 +92,74 @@ class RlDriverPPOEnv:
         self.env = None
         self.current_track = None
 
-    # maps tanh output [-1, 1] to [throttle_min, 1], so raw 0 -> ~0.35 forward throttle
+        self.GENERATED_TRACK = "donkey-generated-track-v0"
+        self.randomize_generated = randomize_generated
+        self.regen_every = regen_every
+        self.regen_settle = regen_settle
+        self.track_rng = np.random.default_rng(track_seed)
+        self.current_layout_seed = None
+
+    # maps tanh output [-1, 1] to [map_min, 1] in both modes, so raw 0 -> 0.325
+    # coast mode clips the braking region to 0, so unlocking brakes only changes that region
     def map_throttle(self, t):
-        return self.throttle_min + (t + 1.0) * 0.5 * (1.0 - self.throttle_min)
+        throttle = self.map_min + (t + 1.0) * 0.5 * (1.0 - self.map_min)
+        if self.throttle_mode == "coast":
+            throttle = tf.maximum(throttle, 0.0)
+        return throttle
 
     def get_speeds(self):
         while len(self.speed_buffer) < self.n_timesteps:
             self.speed_buffer.appendleft(0.0)  # not moving
         return np.array(self.speed_buffer, dtype=np.float32) / self.max_speed  # signed, roughly -1..1
 
-    def safe_throttle(self, throttle, min_speed=0.1):
-        
-        # allow braking while moving forward, block reverse once (nearly) stopped
-        speed = self.speed_buffer[-1] if self.speed_buffer else 0.0
-        if speed <= min_speed:
-            return max(throttle, 0.0)
-        return throttle
+    def safe_throttle(self, throttle):
+        # gas passes through unchanged
+        if throttle >= 0.0:
+            return throttle
 
-    def start_sim(self, track=None):
+        speed = self.speed_buffer[-1] if self.speed_buffer else 0.0
+        if speed <= 0.0:
+            return 0.0 # no braking
+
+        # allowed braking shrinks linearly to zero as speed drops
+        max_brake = self.throttle_min * min(1.0, speed / self.full_brake_speed)
+        return max(throttle, max_brake)
+
+    def check_stall(self, speed, episode_steps):
+        if episode_steps <= self.stall_grace:
+            self.stall_steps = 0
+            return False
+        if speed < self.slow_speed:
+            self.stall_steps += 1
+        else:
+            self.stall_steps = 0
+        return self.stall_steps >= self.stall_limit
+
+    def regen_track(self, seed=None):
+        if seed is None:
+            seed = int(self.track_rng.integers(0, 1_000_000))
+        msg = {
+            "msg_type": "regen_road",
+            "road_style": "0",
+            "rand_seed": str(seed),
+            "turn_increment": "0.0",
+        }
+        handler = self.env.unwrapped.viewer.handler
+        if hasattr(handler, "blocking_send"):
+            handler.blocking_send(msg)
+        else:
+            handler.queue_message(msg)
+
+        time.sleep(self.regen_settle)
+        self.current_layout_seed = seed
+        print(f"log: generated track layout seed {seed}")
+        return self.env.reset()
+
+    def start_sim(self, track=None, new_layout=None):
         if track is None:
             track = np.random.choice(self.tracks)
 
+        reloaded = False
         if self.env is not None and track == self.current_track:
             # same track: just reset the car, no scene reload
             obs, info = self.env.reset()
@@ -109,15 +169,24 @@ class RlDriverPPOEnv:
             self.env = self.make_env(track)
             self.current_track = track
             obs, info = self.env.reset()
+            reloaded = True
+
+        if track == self.GENERATED_TRACK and self.randomize_generated:
+            if new_layout is None:
+                new_layout = reloaded or self.regen_every == "episode"
+            if new_layout:
+                obs, info = self.regen_track()
 
         self.frame_buffer.clear()
         self.speed_buffer.clear()
+        self.stall_steps = 0
         self.frame_buffer.append(self.process_obs(obs))
         self.speed_buffer.append(info["speed"])
         return obs, info
 
-    def evaluate(self, episodes_per_track=2, max_steps=2000):
+    def evaluate(self, episodes_per_track=2, max_steps=2000, epoch=0, method="raw_frame"):
         lap_times, ctes, ep_returns = [], [], []
+        throttle_history = [] # one list of throttles per eval episode
         successful_laps = 0
         crashed_laps = 0
 
@@ -127,6 +196,7 @@ class RlDriverPPOEnv:
             obs, info = self.start_sim(track="donkey-minimonaco-track") # use eval track
             env = self.env
             prev_laps, ep_return, ep_ctes = None, 0.0, []
+            ep_throttles = []
 
             for step in range(1, max_steps + 1):
                 state = self.pad_buffers(self.frame_buffer)
@@ -137,13 +207,20 @@ class RlDriverPPOEnv:
                     training=False,
                 )
                 steer = float(tf.math.tanh(steer_mu))
-                throttle = self.map_throttle(float(tf.math.tanh(throttle_mu))) # remap throttle
+                throttle = tf.math.tanh(throttle_mu) # throttle between -1, 1
+                throttle = float(self.map_throttle(throttle))
 
-                obs, _, terminated, truncated, info = env.step([steer, self.safe_throttle(throttle)])
+                applied_throttle = self.safe_throttle(throttle)
+                obs, _, terminated, truncated, info = env.step([steer, applied_throttle])
+                ep_throttles.append(applied_throttle)
                 self.frame_buffer.append(self.process_obs(obs))
                 self.speed_buffer.append(info["speed"])
 
-                ep_return += self.reward(info, steps=step)
+                r = self.reward(info, steps=step)
+                if self.check_stall(info["speed"], step) and not terminated:
+                    r = -10.0 # stall counts as a crash
+                    terminated = True
+                ep_return += r
                 ep_ctes.append(abs(info["cte"]))
 
                 if prev_laps is None:
@@ -163,6 +240,7 @@ class RlDriverPPOEnv:
 
             ctes.append(np.mean(ep_ctes))
             ep_returns.append(ep_return)
+            throttle_history.append(ep_throttles)
 
         self.close_sim()
         attempts = crashed_laps + successful_laps
@@ -176,6 +254,8 @@ class RlDriverPPOEnv:
         if out["crash_rate"] <= self.best_eval_stats[0] and out["lap_time"] <= self.best_eval_stats[1]: # check crash rate and lap time
             self.save_this_model = True # save this is the best model so far
             self.best_eval_stats = (out["crash_rate"], out["lap_time"]) # update
+
+        self.plot_throttle(throttle_history, epoch, method)
 
         return out
 
@@ -248,6 +328,27 @@ class RlDriverPPOEnv:
             delimiter=",", header=",".join(columns), comments="",
         )
 
+    def plot_throttle(self, throttle_history, epoch, method):
+        throttle_dir = os.path.join(self.log_dir, "throttle")
+        os.makedirs(throttle_dir, exist_ok=True)
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        for i, ep_throttles in enumerate(throttle_history):
+            ax.plot(np.arange(len(ep_throttles)), ep_throttles, linewidth=1, label=f"episode {i + 1}")
+
+        if self.throttle_mode == "brake":
+            ax.axhline(0.0, color="gray", linestyle="--", linewidth=0.8)
+
+        ax.set_xlabel("step")
+        ax.set_ylabel("throttle")
+        ax.set_ylim(self.throttle_min - 0.05, 1.05)
+        ax.set_title(f"eval throttle epoch {epoch} ({method}, {self.throttle_mode})")
+        ax.grid(alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(os.path.join(throttle_dir, f"{method}_throttle_epoch_{epoch}.png"), dpi=120)
+        plt.close(fig)
+
     def action(self):
         pred_buffer = self.pad_buffers(self.frame_buffer) # pad inputs
         speeds = self.get_speeds()
@@ -271,7 +372,7 @@ class RlDriverPPOEnv:
         raw_steer = steer_dist.sample()
         raw_throttle = throttle_dist.sample()
         
-        # squash boundaries with tanh and sigmoid
+        # squash boundaries with tanh or sigmoid
         steer = tf.math.tanh(raw_steer) # steering is between -1, 1
         throttle = tf.math.tanh(raw_throttle) # throttle between -1, 1
 
@@ -309,12 +410,13 @@ class RlDriverPPOEnv:
             return -10.0 # was -30.0
 
         speed_norm = speed / self.max_speed
-        centering = max(0.0, 1.0 - (cte / max_cte) ** 2)
+        cte_frac = cte / max_cte
+        centering = max(0.0, 1.0 - cte_frac)
 
         curr_reward = 2.0 * speed_norm * centering
-        curr_reward -= 0.5 * (cte / max_cte) ** 2
+        curr_reward -= 0.5 * cte_frac ** 2
 
-        if speed < 0.3:
+        if speed < self.slow_speed:
             curr_reward -= 0.3
 
         lap_time = float(info.get("last_lap_time", 0.0))
@@ -398,8 +500,14 @@ class RlDriverPPOEnv:
                     episode_steps += 1
                     new_reward = self.reward(info, episode_steps)
 
-                    new_reward -= 0.3 * abs(throttle - prev_throttle) # penalize gas/brake flip-flopping
+                    new_reward -= 0.3 * abs(throttle - prev_throttle) / (1.0 - self.map_min)
                     prev_throttle = throttle
+
+                    # ends the episode like a crash
+                    stalled = self.check_stall(info["speed"], episode_steps) and not terminated
+                    if stalled:
+                        new_reward = -10.0 # same as a crash
+                        terminated = True # no critic bootstrap, counts in finished_crashed
 
                     truncated = (truncated or episode_steps >= self.max_ep_steps) and not terminated
 
@@ -421,8 +529,8 @@ class RlDriverPPOEnv:
 
                         finished_lengths.append(episode_steps)
                         finished_crashed.append(bool(terminated))
-                        print(f"{track}: {'crash' if terminated else 'time limit'}, "
-                              f"cte {info['cte']:.2f}, len {episode_steps}")
+                        reason = "stall" if stalled else ("crash" if terminated else "time limit")
+                        print(f"{track}: {reason}, cte {info['cte']:.2f}, len {episode_steps}")
 
                         self.restart_episode(track=track)
                         episode_steps = 0
@@ -516,7 +624,7 @@ class RlDriverPPOEnv:
 
                         # squash stored raw actions
                         squashed_steer = tf.math.tanh(mb_raw_steer) # tanh for -1,1
-                        squashed_throttle = tf.math.tanh(mb_raw_throttle) # used to be sigmoid for 0,1 now tanh for -1,1 (braking)
+                        squashed_throttle = tf.math.tanh(mb_raw_throttle) # throttle between -1, 1
 
                         # calculate log probabilities
                         log_prob_steer = steer_dist.log_prob(mb_raw_steer) - tf.math.log(1.0 - squashed_steer ** 2 + 1e-6)
@@ -585,11 +693,11 @@ class RlDriverPPOEnv:
                 epoch_lap_time = float(np.mean(self.lap_times))
                 print(f"laps this epoch: {len(self.lap_times)} | avg lap time {epoch_lap_time:.2f}s")
 
-            self.rl_driver.save_weights(f"checkpoints/latest_{method}_ppo.weights.h5")
+            self.rl_driver.save_weights(f"checkpoints/latest_{method}_{self.throttle_mode}_ppo.weights.h5")
 
-            metrics = self.evaluate()
+            metrics = self.evaluate(epoch=epoch, method=method)
             if self.save_this_model:
-                self.rl_driver.save_weights(f"checkpoints/best_{method}_ppo.weights.h5")
+                self.rl_driver.save_weights(f"checkpoints/best_{method}_{self.throttle_mode}_ppo.weights.h5")
                 self.save_this_model = False
             self.plot_eval(epoch, metrics, method)
 
