@@ -1,0 +1,34 @@
+09:36:02  launched sim, unity log -> /Users/ansh/Downloads/development/formula_rc/donkeysim_logs/sim_20261106_093602.log
+09:36:02  connecting to donkeycar environment using map: [generated_track]
+09:36:02  connecting to localhost:9091 
+09:36:02  sim not ready (1/30): Could not connect to server. Is it running? If you specified 'remote', then you must start it manually.
+09:36:04  connecting to localhost:9091 
+09:36:04  waiting for sim to start..
+09:36:05  on need car config
+09:36:05  sending car config.
+09:36:06  sim started!
+09:36:09  track seed 847104
+09:36:17  episode finished (seed 847104). cte: 8.69, hit: none
+09:36:24  episode finished (seed 847104). cte: -8.01, hit: none
+09:36:30  track seed 463859
+09:36:38  episode finished (seed 463859). cte: 8.39, hit: none
+09:36:43  track seed 898028
+09:37:02  New lap time: 34.6 seconds
+09:37:02  lap 1 in 34.60s (seed 898028)
+09:37:02  episode finished (seed 898028). cte: 8.32, hit: none
+09:37:06  track seed 624096
+09:37:13  episode finished (seed 624096). cte: 4.40, hit: oak-01(Clone)
+09:37:27  episode finished (seed 624096). cte: -2.45, hit: Line01
+09:37:33  episode finished (seed 624096). cte: 4.49, hit: Broadleaf_Mobile(Clone)
+09:37:36  track seed 684014
+09:37:42  episode finished (seed 684014). cte: -8.09, hit: none
+09:37:46  track seed 559627
+09:38:06  New lap time: 37.32 seconds
+09:38:06  lap 1 in 37.32s (seed 559627)
+09:38:06  episode finished (seed 559627). cte: 8.18, hit: none
+09:38:10  track seed 828335
+09:38:13  track seed 531169
+09:38:16  episode finished (seed 531169). cte: -3.67, hit: Line01
+09:38:24  episode finished (seed 531169). cte: -8.02, hit: none
+09:38:27  track seed 806623
+09:38:28  quitting

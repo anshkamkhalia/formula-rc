@@ -12,7 +12,6 @@ class RawFramePPO(RlDriverPPOEnv):
             "donkey-roboracingleague-track-v0",
             "donkey-generated-track-v0",
             "donkey-warren-track-v0", 
-            "donkey-generated-track-v0",
         ]
         super().__init__(
             model,
@@ -21,14 +20,13 @@ class RawFramePPO(RlDriverPPOEnv):
             timesteps=timesteps,
             max_speed=max_speed,
             track_steps=1_000, # tune
-            throttle_mode="coast", # change when car can complete laps or get good progress
         )
 
     def process_obs(self, obs):
         return np.array(obs/255.0, dtype=np.float32)
 
 if __name__ == "__main__":
-    path = "checkpoints/latest_raw_frame_coast_ppo.weights.h5"
+    path = "checkpoints/latest_raw_frame_ppo.weights.h5"
     model = build_rl_driver()
     if os.path.exists(path):
         model.load_weights(path)

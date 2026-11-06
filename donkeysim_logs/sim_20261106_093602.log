@@ -1,0 +1,80 @@
+Mono path[0] = '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/Managed'
+Mono config path = '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/MonoBleedingEdge/etc'
+Initialize engine version: 2020.3.49f1 (18249dd5551b)
+[Subsystems] Discovering subsystems at path /Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/UnitySubsystems
+GfxDevice: creating device client; threaded=1
+2026-11-06 09:36:02.325 donkey_sim[11186:20465426] (null) preferred device: Apple M4 (high power)
+2026-11-06 09:36:02.325 donkey_sim[11186:20465426] Metal devices available: 1
+2026-11-06 09:36:02.326 donkey_sim[11186:20465426] 0: Apple M4 (high power)
+2026-11-06 09:36:02.326 donkey_sim[11186:20465426] Using device Apple M4 (high power)
+Initializing Metal device caps: Apple M4
+Begin MonoManager ReloadAssembly
+- Completed reload, in  0.026 seconds
+Metal RecreateSurface[0x10775e1b0]: surface size 3420x2146
+UnloadTime: 0.448750 ms
+SDSandbox Server starting.
+Server Listening on: 0.0.0.0:9091
+Waiting for a connection...
+System.IO.DirectoryNotFoundException: Could not find a part of the path '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/StreamingAssets'.
+  at System.IO.__Error.WinIOError (System.Int32 errorCode, System.String maybeFullPath) [0x000f7] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource].HandleError (System.Int32 hr, System.String path) [0x00006] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource].CommonInit () [0x00054] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource]..ctor (System.String path, System.String originalUserPath, System.String searchPattern, System.IO.SearchOption searchOption, System.IO.SearchResultHandler`1[TSource] resultHandler, System.Boolean checkHost) [0x000d6] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableFactory.CreateFileNameIterator (System.String path, System.String originalUserPath, System.String searchPattern, System.Boolean includeFiles, System.Boolean includeDirs, System.IO.SearchOption searchOption, System.Boolean checkHost) [0x00009] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.InternalGetFileDirectoryNames (System.String path, System.String userPathOriginal, System.String searchPattern, System.Boolean includeFiles, System.Boolean includeDirs, System.IO.SearchOption searchOption, System.Boolean checkHost) [0x00000] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.InternalGetFiles (System.String path, System.String searchPattern, System.IO.SearchOption searchOption) [0x00000] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.GetFiles (System.String path, System.String searchPattern, System.IO.SearchOption searchOption) [0x00038] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at SceneLoader.LoadScenePathsFromFile (System.String directoryPath) [0x00006] in <6e2331772e0b45f5b61e8b26d82d1fda>:0 
+  at tk.TcpMenuHandler.Start () [0x00007] in <6e2331772e0b45f5b61e8b26d82d1fda>:0 
+SDSandbox Server starting.
+Server Listening on: 0.0.0.0:9092
+Waiting for a connection...
+Setting up 5 worker threads for Enlighten.
+  Thread -> id: 17831f000 -> priority: 1 
+  Thread -> id: 1783ab000 -> priority: 1 
+  Thread -> id: 17c6df000 -> priority: 1 
+  Thread -> id: 17c7f7000 -> priority: 1 
+  Thread -> id: 17c76b000 -> priority: 1 
+Waiting for a connection...
+client connected.
+generated_track
+loaded scene
+Unloading 8 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 7.031583 ms
+JustOne removing instance.MainThDisp
+JustOne removing instance.SandboxServer
+MakeRandomLoop: seed 0, 263 nodes, ctrl 16, radius 69.6, jitter 0.24, minTurn 4.8, reversed False
+JustOne removing instance.SandboxPrivateAPIServer
+Added timer
+car loaded.
+
+Unloading 33 unused Assets to reduce memory usage. Loaded Objects now: 4934.
+Total: 2.726625 ms (FindLiveObjects: 0.171208 ms CreateObjectMapping: 0.048458 ms MarkObjects: 0.806667 ms  DeleteObjects: 1.700292 ms)
+
+MakeRandomLoop: seed 847104, 181 nodes, ctrl 17, radius 48.1, jitter 0.33, minTurn 6.3, reversed True
+regen_road: generated_track rebuilt with loop seed 847104
+MakeRandomLoop: seed 463859, 244 nodes, ctrl 15, radius 63.7, jitter 0.35, minTurn 7.7, reversed True
+regen_road: generated_track rebuilt with loop seed 463859
+MakeRandomLoop: seed 898028, 217 nodes, ctrl 18, radius 60.0, jitter 0.17, minTurn 4.2, reversed True
+regen_road: generated_track rebuilt with loop seed 898028
+MakeRandomLoop: seed 624096, 173 nodes, ctrl 10, radius 52.0, jitter 0.21, minTurn 6.6, reversed True
+regen_road: generated_track rebuilt with loop seed 624096
+Collision with Challenge
+MakeRandomLoop: seed 684014, 169 nodes, ctrl 10, radius 50.3, jitter 0.23, minTurn 7.1, reversed False
+regen_road: generated_track rebuilt with loop seed 684014
+MakeRandomLoop: seed 559627, 178 nodes, ctrl 16, radius 49.4, jitter 0.35, minTurn 7.3, reversed True
+regen_road: generated_track rebuilt with loop seed 559627
+Collision with Challenge
+MakeRandomLoop: seed 828335, 273 nodes, ctrl 16, radius 79.3, jitter 0.30, minTurn 6.6, reversed False
+regen_road: generated_track rebuilt with loop seed 828335
+MakeRandomLoop: seed 531169, 201 nodes, ctrl 15, radius 58.4, jitter 0.31, minTurn 5.7, reversed False
+regen_road: generated_track rebuilt with loop seed 531169
+MakeRandomLoop: seed 806623, 180 nodes, ctrl 8, radius 60.1, jitter 0.23, minTurn 8.0, reversed True
+regen_road: generated_track rebuilt with loop seed 806623
+removed timer
+removed split screen camera
+Removed car
+Thread 0x16d08b000 may have been prematurely finalized
+Server stopped.
+Server stopped.
+Thread 0x16c437000 may have been prematurely finalized
