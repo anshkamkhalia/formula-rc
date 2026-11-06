@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import subprocess
 import cv2 as cv
 from collections import deque
+from src.super.driver import build_rl_driver
 
 class RlDriverPPOEnv:
 
@@ -46,6 +47,7 @@ class RlDriverPPOEnv:
         self.rl_driver = model
         self.n_timesteps = timesteps
         self.optimizer = tf.keras.optimizers.Adam(2e-4)
+        self.load_optimizer_state() # load optimizer state
 
         self.max_speed = max_speed
         self.prev_laps = 0
@@ -90,6 +92,32 @@ class RlDriverPPOEnv:
         self.regen_settle = regen_settle
         self.track_rng = np.random.default_rng(track_seed)
         self.current_layout_seed = None
+
+    def load_optimizer_state(self, path="checkpoints/latest_optimizer_state.npz", lr=2e-4):
+        
+        # creates iterations, lr, and m/v slots for the real model's variables
+        self.optimizer.build(self.rl_driver.trainable_variables)
+
+        if not os.path.exists(path):
+            print("no optimizer state found, starting fresh")
+            return
+
+        with np.load(path) as data:
+            saved = [data[f"arr_{i}"] for i in range(len(data.files))]
+
+        opt_vars = self.optimizer.variables
+        if len(saved) != len(opt_vars):
+            raise ValueError(f"optimizer state mismatch: file has {len(saved)}, optimizer has {len(opt_vars)}")
+
+        for var, val in zip(opt_vars, saved):
+            if tuple(var.shape) != val.shape:
+                raise ValueError(f"shape mismatch for {var.name}: {var.shape} vs {val.shape}")
+            var.assign(val)
+
+        if lr is not None:
+            self.optimizer.learning_rate.assign(lr) # override restored lr if you want
+
+        print(f"restored optimizer at step {int(self.optimizer.iterations.numpy())}")
 
     def get_speeds(self):
         while len(self.speed_buffer) < self.n_timesteps:
@@ -369,7 +397,7 @@ class RlDriverPPOEnv:
 
         # terminal penalty
         if cte > max_cte or info["hit"] != "none":
-            return -15.0 # was -30.0
+            return -10.0 # was -30.0
 
         speed_norm = speed / self.max_speed
         cte_frac = cte / max_cte
@@ -469,7 +497,7 @@ class RlDriverPPOEnv:
                     track_buffer["raw_steer"].append(raw_steer)
                     track_buffer["raw_throttle"].append(raw_throttle)
                     track_buffer["logp_vals"].append(logp)
-                    track_buffer["rewards"].append(new_reward * self.REWARD_SCALE)
+                    track_buffer["rewards"].append(new_reward)
                     track_buffer["values"].append(value)
                     track_buffer["dones"].append(terminated or truncated)
 
@@ -646,7 +674,9 @@ class RlDriverPPOEnv:
                 epoch_lap_time = float(np.mean(self.lap_times))
                 print(f"laps this epoch: {len(self.lap_times)} | avg lap time {epoch_lap_time:.2f}s")
 
-            self.rl_driver.save_weights(f"checkpoints/latest_{method}_ppo.weights.h5")
+            self.rl_driver.save_weights(f"checkpoints/latest_{method}_ppo.weights.h5") # save weights
+            opt_weights = [v.numpy() for v in self.optimizer.variables]
+            np.savez("checkpoints/latest_optimizer_state.npz", *opt_weights) # save optimizer 
 
             metrics = self.evaluate(epoch=epoch, method=method)
             if self.save_this_model:

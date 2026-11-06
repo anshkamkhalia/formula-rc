@@ -6,12 +6,13 @@ import os
 
 class RawFramePPO(RlDriverPPOEnv):
 
-    def __init__(self, model, max_cte=5.0, timesteps=6, max_speed=8):
+    def __init__(self, model, max_cte=5.5, timesteps=6, max_speed=8):
         tracks = [
             "donkey-generated-track-v0",
-            "donkey-roboracingleague-track-v0",
             "donkey-generated-track-v0",
-            "donkey-warren-track-v0", 
+            "donkey-warren-track-v0",
+            "donkey-waveshare-v0",
+            "donkey-warehouse-v0",
         ]
         super().__init__(
             model,
