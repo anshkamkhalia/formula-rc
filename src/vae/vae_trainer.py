@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from src.rl_driver.v5.vae.vae import VAE
+from src.vae.vae import VAE
 import math
 import os
 from tqdm import tqdm
@@ -75,7 +75,7 @@ def to_float(x):
 
 def loss_fn(x, recon, mu, logvar):
 
-    # reconstruction: sum over pixels, mean over batch
+    # sum over pixels, mean over batch
     recon_loss = tf.reduce_sum(tf.square(x - recon), axis=[1, 2, 3])
     kl_loss = -0.5 * tf.reduce_sum(1.0 + logvar - tf.square(mu) - tf.exp(logvar), axis=1)
 

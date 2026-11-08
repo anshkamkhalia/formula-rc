@@ -114,7 +114,7 @@ class RlDriverPPOEnv:
     def get_speeds(self):
         while len(self.speed_buffer) < self.n_timesteps:
             self.speed_buffer.appendleft(0.0)  # not moving
-        return np.array(self.speed_buffer, dtype=np.float32) / self.max_speed  # signed, roughly -1..1
+        return np.array(self.speed_buffer, dtype=np.float32) / self.max_speed
     
     def regen_track(self, seed=None):
         if seed is None:

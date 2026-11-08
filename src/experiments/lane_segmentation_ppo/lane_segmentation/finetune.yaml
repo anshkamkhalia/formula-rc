@@ -1,0 +1,58 @@
+model:
+  config: medium                                # nano | small | medium | large, must match the weights
+  pretrained: checkpoints/lane_seg/medium.pth   # official TwinLiteNet+ weights; null = from scratch
+
+data:
+  root: lane_seg_data
+  tracks: []                 # empty = every folder in root
+  exclude_tracks: []         # e.g. [dummy]
+  val_only_tracks: []        # never trained on, e.g. [real] to measure generalization
+  val_fraction: 0.15         # tail of each chunk
+  balance_tracks: true       # true: equal share per track (times track_weights) regardless of size
+  track_weights: {}          # e.g. {real: 3.0, donkey-warehouse-v0: 0.5}
+  samples_per_epoch: null    # null = size of the training set
+
+train:
+  epochs: 50
+  batch_size: 16
+  lr: 0.00005                # 1/10 of the paper's 5e-4 since we're fine-tuning
+  lr_power: 1.5              # poly decay, same as the paper
+  weight_decay: 0.0005
+  momentum: 0.9              # AdamW beta1
+  eps: 0.00000001
+  ema: true
+  amp: true                  # only used on CUDA
+  num_workers: 4
+  device: auto               # auto | cuda | mps | cpu
+  seed: 0
+  val_every: 1
+  save_dir: runs/lane_seg
+  select_track: all          # track that picks best.pth; set to real once you have it
+  select_metric: ll_iou      # ll_iou | da_miou | ll_acc
+
+loss:                        # unchanged from the paper
+  alpha1: 0.7
+  gamma1: 1.33333333333
+  alpha2: 0.9
+  gamma2: 1.33333333333
+  alpha3: 0.25
+  gamma3: 2.0
+
+augment:
+  prob_perspective: 0.5
+  degrees: 5                 # paper: 10; smaller since the camera is rigidly mounted
+  translate: 0.05            # paper: 0.1
+  scale: 0.15                # zoom range 0.85 to 1.15
+  shear: 0.0
+  prob_hsv: 0.5
+  hgain: 0.015
+  sgain: 0.7
+  vgain: 0.4
+  prob_flip: 0.5
+  prob_bilateral: 0.1
+  prob_gaussian: 0.1
+  prob_jpeg: 0.2
+  prob_noise: 0.2
+  prob_crop: 0.1
+  height_crop: 270           # paper used 540x960 on 720x1280 frames; same 75% at 360x640
+  width_crop: 480
