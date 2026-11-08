@@ -15,7 +15,7 @@ from src.super.driver import build_rl_driver
 
 class RlDriverPPOEnv:
 
-    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(120, 160, 3), max_ep_steps=2_000, randomize_generated=True, regen_every="block", regen_settle=2.0, track_seed=None):
+    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(160, 120, 3), max_ep_steps=2_000, randomize_generated=True, regen_every="block", regen_settle=2.0, track_seed=None):
 
         self.max_cte = max_cte
         self.tracks = tracks
@@ -52,20 +52,12 @@ class RlDriverPPOEnv:
         self.max_speed = max_speed
         self.prev_laps = 0
         self.lap_times = []
-
-        # stall handling
         self.slow_speed = 0.3 # one threshold for the penalty and the stall timeout
-        self.stall_limit = 40 # consecutive slow steps before a stall ends the episode
-        self.stall_grace = 60 # steps at episode start where stalls aren't checked (launch)
-        self.full_brake_speed = 2.0 # speed at or above which full braking is allowed
-        self.stall_steps = 0
 
         self.max_ep_steps = max_ep_steps
 
         self.frame_buffer = deque(maxlen=self.n_timesteps) # this used to be part of the old code but i dont wanna change it everywhere so now the individual track observation buffer becomes this
         self.speed_buffer = deque(maxlen=self.n_timesteps) # new
-
-        self.REWARD_SCALE = 0.1
 
         # sim binary
         self.sim_binary = os.path.abspath("sim/DonkeySimMac/donkey_sim.app/Contents/MacOS/donkey_sim")
@@ -168,7 +160,6 @@ class RlDriverPPOEnv:
 
         self.frame_buffer.clear()
         self.speed_buffer.clear()
-        self.stall_steps = 0
         self.frame_buffer.append(self.process_obs(obs))
         self.speed_buffer.append(info["speed"])
         return obs, info
@@ -279,9 +270,8 @@ class RlDriverPPOEnv:
 
         return obs
 
-    def make_std(self, raw):
-
-        return tf.clip_by_value(tf.math.softplus(raw) + 1e-5, 1e-3, 1.0)
+    def make_std(self, raw, min_std=0.05, max_std=1.0):
+        return min_std + (max_std - min_std) * tf.math.sigmoid(raw)
 
     def plot_eval(self, epoch, metrics, method):
 
@@ -376,8 +366,11 @@ class RlDriverPPOEnv:
 
     def pad_buffers(self, buffer):
         if len(buffer) < self.n_timesteps:
-            pad = [np.zeros(self.img_shape, dtype=np.uint8)
-                for _ in range(self.n_timesteps - len(buffer))]
+            if len(buffer) > 0:
+                ref = buffer[-1]
+            else:
+                ref = np.zeros(self.img_shape, dtype=np.float32)
+            pad = [np.zeros_like(ref) for _ in range(self.n_timesteps - len(buffer))]
             buffer = pad + list(buffer)
         return np.concatenate(buffer, axis=-1)
     
@@ -484,6 +477,10 @@ class RlDriverPPOEnv:
                     steer, throttle, raw_steer, raw_throttle, logp, value, inputs, speeds = self.action()
                     obs, _, terminated, truncated, info = self.env.step([steer, throttle])
                     obs = self.process_obs(obs)
+
+                    if step % 100 == 0:
+                        cv.imwrite("training_logs/obs.jpeg", cv.cvtColor(np.asarray(obs * 255), cv.COLOR_RGB2BGR))
+
                     self.frame_buffer.append(obs)
                     self.speed_buffer.append(info["speed"]) # keep speeds in sync with frames
                     episode_steps += 1
