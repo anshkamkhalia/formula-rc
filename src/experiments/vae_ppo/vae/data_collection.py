@@ -37,13 +37,26 @@ def get_teleop():
 
 # make output directory
 os.makedirs("vae_data", exist_ok=True)
+os.makedirs("vae_data/sim", exist_ok=True)
 
 # conf stays the same
 conf = {
     "exe_path": "remote",
     "port": 9091,
     "cam_resolution": (160, 120, 3),
-    "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
+        "cam_config": {
+        "img_w": 160,
+        "img_h": 120,
+        "img_d": 3,
+        "img_enc": "JPG",
+        "fov": 63, # vertical fov matches ssd camera
+        "fish_eye_x": 0.0,
+        "fish_eye_y": 0.0,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "offset_z": 0.0,
+        "rot_x": 0.0,
+    },
     "max_cte": 10.0,
 
     # car appearance
