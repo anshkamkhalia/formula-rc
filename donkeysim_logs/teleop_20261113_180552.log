@@ -1,0 +1,24 @@
+18:05:52  launched sim, unity log -> /Users/ansh/Downloads/development/formula_rc/donkeysim_logs/sim_20261113_180552.log
+18:05:53  connecting to donkeycar environment using map: [mini_monaco]
+18:05:53  connecting to localhost:9091 
+18:05:53  sim not ready (1/30): Could not connect to server. Is it running? If you specified 'remote', then you must start it manually.
+18:05:55  connecting to localhost:9091 
+18:05:55  waiting for sim to start..
+18:05:56  on need car config
+18:05:56  sending car config.
+18:05:56  sim started!
+18:06:13  episode finished (seed 831527). cte: 4.83, hit: RepeatObjectAlong
+18:06:21  episode finished (seed 831527). cte: 4.20, hit: RepeatObjectAlong
+18:06:35  episode finished (seed 831527). cte: 4.49, hit: RepeatObjectAlong
+18:06:40  episode finished (seed 831527). cte: -3.77, hit: RepeatObjectAlong
+18:06:54  episode finished (seed 831527). cte: 4.31, hit: RepeatObjectAlong
+18:06:58  episode finished (seed 831527). cte: -3.92, hit: RepeatObjectAlong
+18:07:02  episode finished (seed 831527). cte: 5.19, hit: RepeatObjectAlong
+18:07:18  episode finished (seed 831527). cte: 4.53, hit: RepeatObjectAlong
+18:07:22  episode finished (seed 831527). cte: 4.74, hit: RepeatObjectAlong
+18:07:26  episode finished (seed 831527). cte: -3.82, hit: RepeatObjectAlong
+18:07:39  episode finished (seed 831527). cte: 4.63, hit: RepeatObjectAlong
+18:07:44  episode finished (seed 831527). cte: 4.27, hit: RepeatObjectAlong
+18:08:09  New lap time: 46.2 seconds
+18:08:09  lap 1 in 46.20s (seed 831527)
+18:08:09  episode finished (seed 831527). cte: -4.42, hit: RepeatObjectAlong

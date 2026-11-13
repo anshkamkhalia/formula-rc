@@ -15,7 +15,7 @@ from gym_donkeycar.envs.donkey_env import (
     GeneratedTrackEnv, MiniMonacoEnv, WarehouseEnv, MountainTrackEnv, WaveshareEnv
 )
 
-CHOSEN_MAP = "generated_track"
+CHOSEN_MAP = "mini_monaco"
 REGEN_SETTLE = 2.0  # seconds to wait for the sim to rebuild the road
 LAUNCH_SIM = True   # False if you start the sim yourself (then its log stays in ~/Library/Logs)
 

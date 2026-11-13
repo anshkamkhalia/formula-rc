@@ -3,7 +3,7 @@ import numpy as np
 
 class VAE(tf.keras.Model):
 
-    def __init__(self, latent_dim=64, img_shape=(84, 128, 3)):
+    def __init__(self, latent_dim=64, img_shape=(120, 160, 3)):
         super().__init__()
         self.latent_dim = latent_dim
         self.img_shape = img_shape
@@ -14,7 +14,7 @@ class VAE(tf.keras.Model):
         self.decoder = self.build_decoder()
 
     def build_encoder(self):
-        inputs = tf.keras.Input(shape=(84, 128, 3)) # cropped image 
+        inputs = tf.keras.Input(shape=(120, 160, 3)) # cropped image 
 
         # conv block 1
         x = tf.keras.layers.Conv2D(32, (3,3), strides=2, padding="same")(inputs) # (42, 64, 32)

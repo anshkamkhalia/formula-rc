@@ -5,13 +5,9 @@ from src.super.driver import build_rl_driver
 import os
 class RawFramePPO(RlDriverPPOEnv):
 
-    def __init__(self, model, max_cte=5.0, timesteps=8, max_speed=8):
+    def __init__(self, model, max_cte=5.0, timesteps=8, max_speed=6):
         tracks = [
-            "donkey-generated-track-v0",
-            "donkey-warren-track-v0",
-            "donkey-generated-track-v0",
-            "donkey-warehouse-v0",
-            "donkey-generated-track-v0",
+            "donkey-minimonaco-track-v0"
         ]
         super().__init__(
             model,
@@ -19,7 +15,7 @@ class RawFramePPO(RlDriverPPOEnv):
             max_cte=max_cte,
             timesteps=timesteps,
             max_speed=max_speed,
-            track_steps=700, # tune
+            track_steps=4500, # tune
         )
 
     def process_obs(self, obs):

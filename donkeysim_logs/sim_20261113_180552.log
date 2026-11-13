@@ -1,0 +1,140 @@
+Mono path[0] = '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/Managed'
+Mono config path = '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/MonoBleedingEdge/etc'
+Initialize engine version: 2020.3.49f1 (18249dd5551b)
+[Subsystems] Discovering subsystems at path /Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/UnitySubsystems
+GfxDevice: creating device client; threaded=1
+2026-11-13 18:05:52.860 donkey_sim[23807:24812385] (null) preferred device: Apple M4 (high power)
+2026-11-13 18:05:52.860 donkey_sim[23807:24812385] Metal devices available: 1
+2026-11-13 18:05:52.860 donkey_sim[23807:24812385] 0: Apple M4 (high power)
+2026-11-13 18:05:52.860 donkey_sim[23807:24812385] Using device Apple M4 (high power)
+Initializing Metal device caps: Apple M4
+Begin MonoManager ReloadAssembly
+- Completed reload, in  0.037 seconds
+Metal RecreateSurface[0x1039ddb30]: surface size 3420x2146
+UnloadTime: 0.347125 ms
+SDSandbox Server starting.
+Server Listening on: 0.0.0.0:9091
+Waiting for a connection...
+System.IO.DirectoryNotFoundException: Could not find a part of the path '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/StreamingAssets'.
+  at System.IO.__Error.WinIOError (System.Int32 errorCode, System.String maybeFullPath) [0x000f7] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource].HandleError (System.Int32 hr, System.String path) [0x00006] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource].CommonInit () [0x00054] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource]..ctor (System.String path, System.String originalUserPath, System.String searchPattern, System.IO.SearchOption searchOption, System.IO.SearchResultHandler`1[TSource] resultHandler, System.Boolean checkHost) [0x000d6] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableFactory.CreateFileNameIterator (System.String path, System.String originalUserPath, System.String searchPattern, System.Boolean includeFiles, System.Boolean includeDirs, System.IO.SearchOption searchOption, System.Boolean checkHost) [0x00009] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.InternalGetFileDirectoryNames (System.String path, System.String userPathOriginal, System.String searchPattern, System.Boolean includeFiles, System.Boolean includeDirs, System.IO.SearchOption searchOption, System.Boolean checkHost) [0x00000] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.InternalGetFiles (System.String path, System.String searchPattern, System.IO.SearchOption searchOption) [0x00000] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.GetFiles (System.String path, System.String searchPattern, System.IO.SearchOption searchOption) [0x00038] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at SceneLoader.LoadScenePathsFromFile (System.String directoryPath) [0x00006] in <6e2331772e0b45f5b61e8b26d82d1fda>:0 
+  at tk.TcpMenuHandler.Start () [0x00007] in <6e2331772e0b45f5b61e8b26d82d1fda>:0 
+SDSandbox Server starting.
+Server Listening on: 0.0.0.0:9092
+Waiting for a connection...
+Setting up 5 worker threads for Enlighten.
+  Thread -> id: 17114b000 -> priority: 1 
+  Thread -> id: 1711d7000 -> priority: 1 
+  Thread -> id: 171b8b000 -> priority: 1 
+  Thread -> id: 171ca3000 -> priority: 1 
+  Thread -> id: 171c17000 -> priority: 1 
+Waiting for a connection...
+client connected.
+mini_monaco
+loaded scene
+Unloading 9 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 3.456375 ms
+JustOne removing instance.MainThDisp
+JustOne removing instance.SandboxServer
+JustOne removing instance.SandboxPrivateAPIServer
+Added timer
+car loaded.
+
+Unloading 33 unused Assets to reduce memory usage. Loaded Objects now: 6419.
+Total: 1.807542 ms (FindLiveObjects: 0.193375 ms CreateObjectMapping: 0.034417 ms MarkObjects: 0.749333 ms  DeleteObjects: 0.830375 ms)
+
+Metal RecreateSurface[0x1039ddb30]: surface size 3420x2050
+Metal RecreateSurface[0x1039ddb30]: surface size 3420x2018
+Metal RecreateSurface[0x1039ddb30]: surface size 3230x2010
+Metal RecreateSurface[0x1039ddb30]: surface size 3174x1988
+Metal RecreateSurface[0x1039ddb30]: surface size 3114x1962
+Metal RecreateSurface[0x1039ddb30]: surface size 3102x1958
+Metal RecreateSurface[0x1039ddb30]: surface size 3086x1950
+Metal RecreateSurface[0x1039ddb30]: surface size 3072x1942
+Metal RecreateSurface[0x1039ddb30]: surface size 3046x1932
+Metal RecreateSurface[0x1039ddb30]: surface size 3036x1926
+Metal RecreateSurface[0x1039ddb30]: surface size 3004x1914
+Metal RecreateSurface[0x1039ddb30]: surface size 2980x1906
+Metal RecreateSurface[0x1039ddb30]: surface size 2952x1894
+Metal RecreateSurface[0x1039ddb30]: surface size 2866x1874
+Metal RecreateSurface[0x1039ddb30]: surface size 2796x1862
+Metal RecreateSurface[0x1039ddb30]: surface size 2776x1858
+Metal RecreateSurface[0x1039ddb30]: surface size 2760x1854
+Metal RecreateSurface[0x1039ddb30]: surface size 2748x1854
+Metal RecreateSurface[0x1039ddb30]: surface size 2732x1850
+Metal RecreateSurface[0x1039ddb30]: surface size 2708x1844
+Metal RecreateSurface[0x1039ddb30]: surface size 2690x1842
+Metal RecreateSurface[0x1039ddb30]: surface size 2672x1838
+Metal RecreateSurface[0x1039ddb30]: surface size 2652x1834
+Metal RecreateSurface[0x1039ddb30]: surface size 2620x1828
+Metal RecreateSurface[0x1039ddb30]: surface size 2606x1824
+Metal RecreateSurface[0x1039ddb30]: surface size 2568x1818
+Metal RecreateSurface[0x1039ddb30]: surface size 2544x1814
+Metal RecreateSurface[0x1039ddb30]: surface size 2522x1810
+Metal RecreateSurface[0x1039ddb30]: surface size 2504x1806
+Metal RecreateSurface[0x1039ddb30]: surface size 2486x1802
+Metal RecreateSurface[0x1039ddb30]: surface size 2468x1798
+Metal RecreateSurface[0x1039ddb30]: surface size 2440x1792
+Metal RecreateSurface[0x1039ddb30]: surface size 2426x1790
+Metal RecreateSurface[0x1039ddb30]: surface size 2416x1788
+Metal RecreateSurface[0x1039ddb30]: surface size 2404x1786
+Metal RecreateSurface[0x1039ddb30]: surface size 2386x1782
+Metal RecreateSurface[0x1039ddb30]: surface size 2372x1780
+Metal RecreateSurface[0x1039ddb30]: surface size 2368x1780
+Metal RecreateSurface[0x1039ddb30]: surface size 2346x1778
+Metal RecreateSurface[0x1039ddb30]: surface size 2332x1776
+Metal RecreateSurface[0x1039ddb30]: surface size 2318x1772
+Metal RecreateSurface[0x1039ddb30]: surface size 2302x1770
+Metal RecreateSurface[0x1039ddb30]: surface size 2270x1764
+Metal RecreateSurface[0x1039ddb30]: surface size 2262x1760
+Metal RecreateSurface[0x1039ddb30]: surface size 2234x1756
+Metal RecreateSurface[0x1039ddb30]: surface size 2214x1752
+Metal RecreateSurface[0x1039ddb30]: surface size 2194x1746
+Metal RecreateSurface[0x1039ddb30]: surface size 2172x1744
+Metal RecreateSurface[0x1039ddb30]: surface size 2146x1738
+Metal RecreateSurface[0x1039ddb30]: surface size 2132x1736
+Metal RecreateSurface[0x1039ddb30]: surface size 2120x1732
+Metal RecreateSurface[0x1039ddb30]: surface size 2096x1724
+Metal RecreateSurface[0x1039ddb30]: surface size 2088x1724
+Metal RecreateSurface[0x1039ddb30]: surface size 2086x1724
+Metal RecreateSurface[0x1039ddb30]: surface size 2084x1724
+Metal RecreateSurface[0x1039ddb30]: surface size 2084x1722
+Metal RecreateSurface[0x1039ddb30]: surface size 2082x1722
+Exception on recv. Connection dropped.
+removed timer
+removed split screen camera
+Removed car
+Unloading 3 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 2.356458 ms
+JustOne removing instance.MainThDisp
+JustOne removing instance.SandboxServer
+JustOne removing instance.SandboxPrivateAPIServer
+
+Unloading 1169 unused Assets to reduce memory usage. Loaded Objects now: 1044.
+Total: 35.679958 ms (FindLiveObjects: 0.101833 ms CreateObjectMapping: 0.039208 ms MarkObjects: 0.610042 ms  DeleteObjects: 34.928875 ms)
+
+client connected.
+Waiting for a connection...
+warehouse
+loaded scene
+Unloading 6 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 0.626958 ms
+JustOne removing instance.MainThDisp
+JustOne removing instance.SandboxServer
+found 176 path points. to load
+JustOne removing instance.SandboxPrivateAPIServer
+Added timer
+car loaded.
+Got car config message
+
+Unloading 31 unused Assets to reduce memory usage. Loaded Objects now: 5156.
+Total: 1.174542 ms (FindLiveObjects: 0.199375 ms CreateObjectMapping: 0.039333 ms MarkObjects: 0.695417 ms  DeleteObjects: 0.240375 ms)
+
+Setting car config.

@@ -5,10 +5,9 @@ import cv2 as cv
 import numpy as np
 import torch
 
-from src.experiments.lane_segmentation_ppo.lane_segmentation.model import TwinLiteNetPlus
-from src.experiments.lane_segmentation_ppo.lane_segmentation.dataset import IMG_H, IMG_W, PAD
-from src.experiments.lane_segmentation_ppo.lane_segmentation.augment import PAD_VALUE
-
+from src.experiments.lane_segmentation_ppo.lane_segmentation_fine_tune.model import TwinLiteNetPlus
+from src.experiments.lane_segmentation_ppo.lane_segmentation_fine_tune.dataset import IMG_H, IMG_W, PAD
+from src.experiments.lane_segmentation_ppo.lane_segmentation_fine_tune.augment import PAD_VALUE
 
 class LaneSegmentation:
 

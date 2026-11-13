@@ -15,7 +15,7 @@ from src.super.driver import build_rl_driver
 
 class RlDriverPPOEnv:
 
-    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(160, 120, 3), max_ep_steps=2_000, randomize_generated=True, regen_every="block", regen_settle=2.0, track_seed=None):
+    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(160, 120, 3), max_ep_steps=2_000):
 
         self.max_cte = max_cte
         self.tracks = tracks
@@ -27,7 +27,19 @@ class RlDriverPPOEnv:
             "exe_path": "remote",
             "port": 9091,
             "cam_resolution": (160, 120, 3),
-            "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
+            "cam_config": {
+                "img_w": 160,
+                "img_h": 120,
+                "img_d": 3,
+                "img_enc": "JPG",
+                "fov": 63, # vertical fov matches ssd camera
+                "fish_eye_x": 0.0,
+                "fish_eye_y": 0.0,
+                "offset_x": 0.0,
+                "offset_y": 0.0,
+                "offset_z": 0.0,
+                "rot_x": 0.0,
+            },
             "max_cte": self.max_cte,
             "throttle_min": 0.0, # removing braking temporarily
             "throttle_max": 1.0, 
@@ -69,6 +81,8 @@ class RlDriverPPOEnv:
             stderr=subprocess.DEVNULL
         )
 
+        time.sleep(5) # let sim init
+
         # graphs for convergence
         self.log_dir = "training_logs/ppo"
         os.makedirs(self.log_dir, exist_ok=True)
@@ -76,14 +90,10 @@ class RlDriverPPOEnv:
         
         # sim connection state
         self.env = None
-        self.current_track = None
 
-        self.GENERATED_TRACK = "donkey-generated-track-v0"
-        self.randomize_generated = randomize_generated
-        self.regen_every = regen_every
-        self.regen_settle = regen_settle
-        self.track_rng = np.random.default_rng(track_seed)
-        self.current_layout_seed = None
+    @tf.function
+    def _forward(self, inputs):
+        return self.rl_driver(inputs, training=False)
 
     def load_optimizer_state(self, path="checkpoints/latest_optimizer_state.npz", lr=2e-4):
         
@@ -116,54 +126,6 @@ class RlDriverPPOEnv:
             self.speed_buffer.appendleft(0.0)  # not moving
         return np.array(self.speed_buffer, dtype=np.float32) / self.max_speed
     
-    def regen_track(self, seed=None):
-        if seed is None:
-            seed = int(self.track_rng.integers(0, 1_000_000))
-        msg = {
-            "msg_type": "regen_road",
-            "road_style": "0",
-            "rand_seed": str(seed),
-            "turn_increment": "0.0",
-        }
-        handler = self.env.unwrapped.viewer.handler
-        if hasattr(handler, "blocking_send"):
-            handler.blocking_send(msg)
-        else:
-            handler.queue_message(msg)
-
-        time.sleep(self.regen_settle)
-        self.current_layout_seed = seed
-        print(f"log: generated track layout seed {seed}")
-        return self.env.reset()
-
-    def start_sim(self, track=None, new_layout=None):
-        if track is None:
-            track = np.random.choice(self.tracks)
-
-        reloaded = False
-        if self.env is not None and track == self.current_track:
-            # same track: just reset the car, no scene reload
-            obs, info = self.env.reset()
-        else:
-            # different track (or nothing loaded): back to menu, load new scene
-            self.close_sim()
-            self.env = self.make_env(track)
-            self.current_track = track
-            obs, info = self.env.reset()
-            reloaded = True
-
-        if track == self.GENERATED_TRACK and self.randomize_generated:
-            if new_layout is None:
-                new_layout = reloaded or self.regen_every == "episode"
-            if new_layout:
-                obs, info = self.regen_track()
-
-        self.frame_buffer.clear()
-        self.speed_buffer.clear()
-        self.frame_buffer.append(self.process_obs(obs))
-        self.speed_buffer.append(info["speed"])
-        return obs, info
-
     def evaluate(self, episodes_per_track=2, max_steps=2000, epoch=0, method="raw_frame"):
         lap_times, ctes, ep_returns = [], [], []
         throttle_history = [] # one list of throttles per eval episode
@@ -171,9 +133,7 @@ class RlDriverPPOEnv:
         crashed_laps = 0
 
         for _ in range(episodes_per_track):
-            self.frame_buffer.clear()
-            self.speed_buffer.clear()
-            obs, info = self.start_sim(track="donkey-minimonaco-track-v0") # use eval track
+            self.restart_episode()
             env = self.env
             prev_laps, ep_return, ep_ctes = None, 0.0, []
             ep_throttles = []
@@ -217,7 +177,6 @@ class RlDriverPPOEnv:
             ep_returns.append(ep_return)
             throttle_history.append(ep_throttles)
 
-        self.close_sim()
         attempts = crashed_laps + successful_laps
         out = {
             "crash_rate": crashed_laps / attempts if attempts > 0 else 1.0,  # lower is better
@@ -234,38 +193,13 @@ class RlDriverPPOEnv:
 
         return out
 
-    def close_sim(self):
-
-        if self.env is None:
-            return
-        try:
-            self.env.unwrapped.viewer.exit_scene() # sim returns to main menu
-            time.sleep(1.5)
-        except Exception as e:
-            print(f"exit_scene failed: {e}")
-        try:
-            self.env.close()
-        except Exception as e:
-            print(f"env.close failed: {e}")
-        self.env = None
-        self.current_track = None
-        time.sleep(1.5) # let the sim settle before the next connect
-
-    def make_env(self, track, retries=30, delay=2.0):
-
-        # retry until the sim is accepting connections
-        for attempt in range(retries):
-            try:
-                return gym.make(track, conf=self.conf)
-            except Exception as e:
-                print(f"sim not ready ({attempt + 1}/{retries}): {e}")
-                time.sleep(delay)
-        raise RuntimeError("sim never came up")
-
-    def restart_episode(self, track):
-
-        self.start_sim(track=track)
-
+    def restart_episode(self):
+        obs, info = self.env.reset()
+        self.frame_buffer.clear() # clear buffers before next episode
+        self.speed_buffer.clear()
+        self.frame_buffer.append(self.process_obs(obs))
+        self.speed_buffer.append(info["speed"])
+    
     def process_obs(self, obs): # override this for child class
 
         return obs
@@ -335,8 +269,8 @@ class RlDriverPPOEnv:
         # convert to tensor and action
         state_tensor = tf.convert_to_tensor([pred_buffer], dtype=tf.float32)
         speed_tensor = tf.convert_to_tensor([speeds])
-        steer_mu, steer_raw_std, throttle_mu, throttle_std_raw, value = self.rl_driver(
-            [state_tensor, speed_tensor], training=False
+        steer_mu, steer_raw_std, throttle_mu, throttle_std_raw, value = self._forward(
+            [state_tensor, speed_tensor],
         )
 
         # enforce positive deviations
@@ -390,7 +324,7 @@ class RlDriverPPOEnv:
 
         # terminal penalty
         if cte > max_cte or info["hit"] != "none":
-            return -10.0 # was -30.0
+            return -15.0 # was -30.0
 
         speed_norm = speed / self.max_speed
         cte_frac = cte / max_cte
@@ -409,11 +343,11 @@ class RlDriverPPOEnv:
             self.prev_laps = laps
 
             if lap_time <= 0.0: # sim hasn't updated it yet, treat as a slow lap
-                lap_time = 30.0
+                lap_time = 100.0
             else:
                 self.lap_times.append(lap_time)
 
-            target = 10.2
+            target = 40 # big track
             bonus = float(np.clip(10.0 + 15.0 * (target - lap_time), 2.0, 15.0))
 
             print(f"log: lap {laps} in {lap_time:.2f}s, bonus {bonus:.1f}")
@@ -451,6 +385,8 @@ class RlDriverPPOEnv:
             # ok so basically what happens is each track computes the stuff needed for the main buffer and then its cleared and added to that main buffer to be used in training
             # gae is computer per track to make sure that advantages dont leak between tracks
 
+            # only 1 track now but the logic still works
+
             for track in self.tracks:
                 track_buffer = { # start each as empty lists and then access by name later
                     "observations": [],
@@ -466,9 +402,10 @@ class RlDriverPPOEnv:
                     "values": [], # not part of main rollout buffer, for gae
                 }
 
+                self.env = gym.make(track, conf=self.conf) # open for this rollout
                 self.frame_buffer = deque(maxlen=self.n_timesteps) # this is what is fed into our policy, capped at length of self.n_timesteps
                 self.speed_buffer = deque(maxlen=self.n_timesteps)
-                obs, info = self.start_sim(track=track) # use track instead of randomization (im not changing the function)
+                self.restart_episode() # already appends new obs
 
                 episode_steps = 0
                 prev_throttle = 0.0 # for throttle change penalty
@@ -500,7 +437,6 @@ class RlDriverPPOEnv:
 
                     # no advantages or returns yet, computed during gae
 
-                    # decide truncation first, then bootstrap, log, restart
                     if terminated or truncated:
                         if truncated:
                             track_buffer["rewards"][-1] += gamma * self.run_critic_on_truncated()
@@ -509,12 +445,12 @@ class RlDriverPPOEnv:
                         finished_crashed.append(bool(terminated))
                         print(f"{track}: cte {info['cte']:.2f}, len {episode_steps}")
 
-                        self.restart_episode(track=track)
+                        self.restart_episode()
                         episode_steps = 0
                         prev_throttle = 0.0
 
                 end_of_rollout = self.run_critic_on_truncated()
-                self.close_sim()
+                self.env.close() # close here and reopen before eval
 
                 # gae
                 rewards = np.array(track_buffer["rewards"], dtype=np.float32)
@@ -675,22 +611,25 @@ class RlDriverPPOEnv:
             opt_weights = [v.numpy() for v in self.optimizer.variables]
             np.savez("checkpoints/latest_optimizer_state.npz", *opt_weights) # save optimizer 
 
+            # eval
+
+            self.env = gym.make(self.tracks[0], conf=self.conf)
+
             metrics = self.evaluate(epoch=epoch, method=method)
             if self.save_this_model:
                 self.rl_driver.save_weights(f"checkpoints/best_{method}_ppo.weights.h5")
                 self.save_this_model = False
             self.plot_eval(epoch, metrics, method)
 
+            self.env.close()
+
             print(f"eval epoch {epoch} | {metrics}")
 
             # reset simulator after every epoch to prevent freezing
             subprocess.run(["killall", "-9", "donkey_sim"])
 
-            if (epoch+1) % 7 == 0:
-                print("\nwaiting longer\n")
-                time.sleep(300)
             print("\nwaiting\n")
-            time.sleep(60) # wait
+            time.sleep(30) # wait
 
             subprocess.Popen([self.sim_binary],
                 start_new_session=True,
@@ -698,3 +637,5 @@ class RlDriverPPOEnv:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
+
+            time.sleep(30) # wait

@@ -2,7 +2,7 @@ import os
 import numpy as np
 import tensorflow as tf
 import cv2 as cv
-from src.vae.vae import VAE
+from src.experiments.vae_ppo.vae.vae import VAE
 from keras.applications.vgg16 import VGG16, preprocess_input
 
 # configs (must match training so the val split and sample picks are identical)
@@ -50,7 +50,7 @@ def log_reconstructions(tag="test"):
 if __name__ == "__main__":
     log_reconstructions("best_checkpoint")
 
-vgg = VGG16(weights="imagenet", include_top=False, input_shape=(84, 128, 3))
+vgg = VGG16(weights="imagenet", include_top=False, input_shape=(120, 160, 3))
 PERC_LAYERS = ["block1_conv2", "block2_conv2", "block3_conv3", "block4_conv3"]
 feature_extractor = tf.keras.Model(
     vgg.input, [vgg.get_layer(n).output for n in PERC_LAYERS])

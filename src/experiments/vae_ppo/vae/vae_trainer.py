@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from src.vae.vae import VAE
+from src.experiments.vae_ppo.vae.vae import VAE
 import math
 import os
 from tqdm import tqdm
@@ -8,7 +8,7 @@ import cv2 as cv
 from keras.applications.vgg16 import VGG16, preprocess_input
 
 # load vgg16 for perceptual loss
-vgg = VGG16(weights='imagenet', include_top=False, input_shape=(84, 128, 3))
+vgg = VGG16(weights='imagenet', include_top=False, input_shape=(120, 160, 3))
 
 PERC_LAYERS = ["block1_conv2", "block2_conv2", "block3_conv3", "block4_conv3"] # feature extractor layers
 LAMBDA_PERC = 18.0 # vgg perceptual loss dampening factor

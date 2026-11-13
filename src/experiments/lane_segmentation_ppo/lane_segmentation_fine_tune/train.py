@@ -22,10 +22,10 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.experiments.lane_segmentation_ppo.lane_segmentation.model import TwinLiteNetPlus
-from src.experiments.lane_segmentation_ppo.lane_segmentation.loss import TotalLoss
-from src.experiments.lane_segmentation_ppo.lane_segmentation.IOUEval import SegmentationMetric
-from src.experiments.lane_segmentation_ppo.lane_segmentation.dataset import (
+from src.experiments.lane_segmentation_ppo.lane_segmentation_fine_tune.model import TwinLiteNetPlus
+from src.experiments.lane_segmentation_ppo.lane_segmentation_fine_tune.loss import TotalLoss
+from src.experiments.lane_segmentation_ppo.lane_segmentation_fine_tune.IOUEval import SegmentationMetric
+from src.experiments.lane_segmentation_ppo.lane_segmentation_fine_tune.dataset import (
     PAD, LaneSegDataset, build_index, make_sampler, seed_worker)
 
 DEFAULT_CONFIG = Path(__file__).with_name("finetune.yaml")

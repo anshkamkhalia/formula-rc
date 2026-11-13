@@ -8,13 +8,6 @@ import uuid
 from pynput import keyboard
 import time
 
-def cut(img, top_cut=0.3, left_cut=0.1, right_cut=0.1):
-    h, w, _ = img.shape
-    top = int(h * top_cut)
-    left = int(w * left_cut)
-    right = w - int(w * right_cut)
-    return img[top:h, left:right]
-
 pressed_keys = set()
 
 def on_press(key):
@@ -43,14 +36,27 @@ def get_teleop():
     return steering, throttle
 
 # make output directory
-os.makedirs("vae_data", exist_ok=True)
+os.makedirs("lane_seg_data", exist_ok=True)
+os.makedirs("lane_seg_data/sim", exist_ok=True)
 
 # conf stays the same
 conf = {
     "exe_path": "remote",
     "port": 9091,
     "cam_resolution": (160, 120, 3),
-    "cam_config": {"img_w": 160, "img_h": 120, "img_d": 3},
+    "cam_config": {
+        "img_w": 160,
+        "img_h": 120,
+        "img_d": 3,
+        "img_enc": "JPG",
+        "fov": 63, # vertical fov matches ssd camera
+        "fish_eye_x": 0.0,
+        "fish_eye_y": 0.0,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "offset_z": 0.0,
+        "rot_x": 0.0,
+    },
     "max_cte": 10.0,
 
     # car appearance
@@ -64,8 +70,8 @@ conf = {
 OPEN_DONKEY_CMD = ["open", "-a", "donkey_sim"]
 KILL_DONKEY_CMD = ["killall", "donkey_sim"]
 
-tracks = ["donkey-generated-track-v0", "donkey-warehouse-v0", "donkey-minimonaco-track-v0", "donkey-mountain-track-v0"]
-n_laps_per_track = 3
+tracks = ["donkey-warehouse-v0", "donkey-minimonaco-track-v0"]
+n_laps_per_track = 1
 
 for track in tracks:
 
@@ -84,16 +90,16 @@ for track in tracks:
         steering, throttle = get_teleop()
 
         obs, reward, terminated, truncated, info = env.step([steering, throttle])
-        cropped = cut(obs)
-        data.append(np.array(cropped, dtype=np.uint8))
+        data.append(np.array(obs, dtype=np.uint8))
 
     # kill donkeysim and then move to next track
     subprocess.run(KILL_DONKEY_CMD)
     time.sleep(5)
 
-    # write out data
-    arr_data = np.array(data, dtype=np.uint8)
-    os.makedirs(f"vae_data/{track}", exist_ok=True)
-    uuid_string = str(uuid.uuid4())
-    np.save(f"vae_data/{track}/{uuid_string}.npy", arr_data)
-    data = []
+    # write data
+    print(f"writing out {len(data)} images")
+    for idx in range(len(data)):
+        if idx % 3 != 0:
+            continue # skip 3
+        img = cv.cvtColor(data[idx], cv.COLOR_RGB2BGR)
+        cv.imwrite(f"lane_seg_data/sim/{uuid.uuid1()}.png", img)
