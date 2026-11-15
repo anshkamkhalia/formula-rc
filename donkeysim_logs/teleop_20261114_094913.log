@@ -1,0 +1,10 @@
+09:49:13  launched sim, unity log -> /Users/ansh/Downloads/development/formula_rc/donkeysim_logs/sim_20261114_094913.log
+09:49:13  connecting to donkeycar environment using map: [generated_track]
+09:49:13  connecting to localhost:9091 
+09:49:13  sim not ready (1/30): Could not connect to server. Is it running? If you specified 'remote', then you must start it manually.
+09:49:15  connecting to localhost:9091 
+09:49:15  waiting for sim to start..
+09:49:16  on need car config
+09:49:16  sending car config.
+09:49:16  sim started!
+09:49:20  track seed 257328

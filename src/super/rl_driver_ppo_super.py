@@ -33,12 +33,6 @@ class RlDriverPPOEnv:
                 "img_d": 3,
                 "img_enc": "JPG",
                 "fov": 63, # vertical fov matches ssd camera
-                "fish_eye_x": 0.0,
-                "fish_eye_y": 0.0,
-                "offset_x": 0.0,
-                "offset_y": 0.0,
-                "offset_z": 0.0,
-                "rot_x": 0.0,
             },
             "max_cte": self.max_cte,
             "throttle_min": 0.0, # removing braking temporarily
@@ -58,7 +52,7 @@ class RlDriverPPOEnv:
         
         self.rl_driver = model
         self.n_timesteps = timesteps
-        self.optimizer = tf.keras.optimizers.Adam(2e-4)
+        self.optimizer = tf.keras.optimizers.Adam(4e-4)
         self.load_optimizer_state() # load optimizer state
 
         self.max_speed = max_speed
@@ -242,6 +236,44 @@ class RlDriverPPOEnv:
             delimiter=",", header=",".join(columns), comments="",
         )
 
+    def plot_entropy(self, entropy_history, epoch, method):
+
+        entropy_dir = os.path.join(self.log_dir, "entropy")
+        os.makedirs("entropy", exist_ok=True)
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        for i, ep_entropy in enumerate(entropy_history):
+            ax.plot(np.arange(len(ep_entropy)), ep_entropy, linewidth=1, label=f"episode {i + 1}")
+
+        ax.set_xlabel("step")
+        ax.set_ylabel("throttle")
+        ax.set_ylim(0.0 - 0.05, 1.05)
+        ax.set_title(f"eval throttle epoch {epoch}")
+        ax.grid(alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(os.path.join(entropy_dir, f"{method}_entropy_epoch_{epoch}.png"), dpi=120)
+        plt.close(fig)
+
+    def plot_loss(self, loss_history, epoch, method):
+
+        loss_dir = os.path.join(self.log_dir, "entropy")
+        os.makedirs("loss", exist_ok=True)
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        for i, ep_loss in enumerate(loss_history):
+            ax.plot(np.arange(len(ep_loss)), ep_loss, linewidth=1, label=f"episode {i + 1}")
+
+        ax.set_xlabel("step")
+        ax.set_ylabel("throttle")
+        ax.set_ylim(0.0 - 0.05, 1.05)
+        ax.set_title(f"eval throttle epoch {epoch}")
+        ax.grid(alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(os.path.join(loss_dir, f"{method}_loss_epoch_{epoch}.png"), dpi=120)
+        plt.close(fig)
+
     def plot_throttle(self, throttle_history, epoch, method):
 
         throttle_dir = os.path.join(self.log_dir, "throttle")
@@ -324,7 +356,7 @@ class RlDriverPPOEnv:
 
         # terminal penalty
         if cte > max_cte or info["hit"] != "none":
-            return -15.0 # was -30.0
+            return -25.0 # was -30.0
 
         speed_norm = speed / self.max_speed
         cte_frac = cte / max_cte
@@ -347,7 +379,7 @@ class RlDriverPPOEnv:
             else:
                 self.lap_times.append(lap_time)
 
-            target = 40 # big track
+            target = 8 # small track
             bonus = float(np.clip(10.0 + 15.0 * (target - lap_time), 2.0, 15.0))
 
             print(f"log: lap {laps} in {lap_time:.2f}s, bonus {bonus:.1f}")
@@ -362,7 +394,7 @@ class RlDriverPPOEnv:
         _, _, _, _, value = self.rl_driver([state_tensor, speed_tensor], training=False)
         return float(value[0][0])
 
-    def train(self, epochs=100, episodes=15, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=4, minibatch_size=128, max_grad_norm=0.5, method="raw_frame", mode="steps"):
+    def train(self, epochs=100, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=6, minibatch_size=256, max_grad_norm=0.5, method="raw_frame", mode="steps"):
 
         # new fixed step track switching
         for epoch in range(epochs+1):
@@ -493,7 +525,7 @@ class RlDriverPPOEnv:
                 main_buffer[k] = tf.constant(main_buffer[k], dtype=tf.float32)
 
             n = main_buffer["observations"].shape[0]
-            stats = {"kl": [], "clip": [], "policy": [], "value": [], "entropy": [], "grad_norm": []}
+            stats = {"kl": [], "clip": [], "policy": [], "value": [], "entropy": [], "grad_norm": [], "losses": []}
 
             for ppo_epoch in range(ppo_epochs):
                 indices = tf.random.shuffle(tf.range(n))
@@ -560,7 +592,7 @@ class RlDriverPPOEnv:
                         entropy = tf.reduce_mean(steer_dist.entropy() + throttle_dist.entropy())
 
                         # total
-                        self.loss = policy_loss + 0.25 * value_loss - 0.001 * entropy
+                        self.loss = policy_loss + 0.25 * value_loss - 0.01 * entropy # multiple entropy bonus by 10
             
                     # update vars
                     variables = self.rl_driver.trainable_variables
@@ -579,6 +611,11 @@ class RlDriverPPOEnv:
                     stats["value"].append(float(value_loss))
                     stats["entropy"].append(float(entropy))
                     stats["grad_norm"].append(float(grad_norm))
+                    stats["losses"].append(float(self.loss))
+
+                    # plot entropy and loss
+                    self.plot_entropy(entropy_history=stats["entropy"], epoch=epoch, method=method)
+                    self.plot_loss(loss_history=stats["losses"], epoch=epoch, method=method)
 
                     # regression test: first minibatch of first pass should have ratio close to 1
                     if ppo_epoch == 0 and start == 0:
@@ -616,6 +653,7 @@ class RlDriverPPOEnv:
             self.env = gym.make(self.tracks[0], conf=self.conf)
 
             metrics = self.evaluate(epoch=epoch, method=method)
+
             if self.save_this_model:
                 self.rl_driver.save_weights(f"checkpoints/best_{method}_ppo.weights.h5")
                 self.save_this_model = False

@@ -1,0 +1,60 @@
+Mono path[0] = '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/Managed'
+Mono config path = '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/MonoBleedingEdge/etc'
+Initialize engine version: 2020.3.49f1 (18249dd5551b)
+[Subsystems] Discovering subsystems at path /Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/UnitySubsystems
+GfxDevice: creating device client; threaded=1
+2026-11-14 09:43:20.661 donkey_sim[69046:25510676] (null) preferred device: Apple M4 (high power)
+2026-11-14 09:43:20.661 donkey_sim[69046:25510676] Metal devices available: 1
+2026-11-14 09:43:20.661 donkey_sim[69046:25510676] 0: Apple M4 (high power)
+2026-11-14 09:43:20.661 donkey_sim[69046:25510676] Using device Apple M4 (high power)
+Initializing Metal device caps: Apple M4
+Begin MonoManager ReloadAssembly
+- Completed reload, in  0.025 seconds
+UnloadTime: 0.400417 ms
+SDSandbox Server starting.
+Server Listening on: 0.0.0.0:9091
+Waiting for a connection...
+System.IO.DirectoryNotFoundException: Could not find a part of the path '/Users/ansh/Downloads/development/formula_rc/sim/DonkeySimMac/donkey_sim.app/Contents/Resources/Data/StreamingAssets'.
+  at System.IO.__Error.WinIOError (System.Int32 errorCode, System.String maybeFullPath) [0x000f7] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource].HandleError (System.Int32 hr, System.String path) [0x00006] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource].CommonInit () [0x00054] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableIterator`1[TSource]..ctor (System.String path, System.String originalUserPath, System.String searchPattern, System.IO.SearchOption searchOption, System.IO.SearchResultHandler`1[TSource] resultHandler, System.Boolean checkHost) [0x000d6] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.FileSystemEnumerableFactory.CreateFileNameIterator (System.String path, System.String originalUserPath, System.String searchPattern, System.Boolean includeFiles, System.Boolean includeDirs, System.IO.SearchOption searchOption, System.Boolean checkHost) [0x00009] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.InternalGetFileDirectoryNames (System.String path, System.String userPathOriginal, System.String searchPattern, System.Boolean includeFiles, System.Boolean includeDirs, System.IO.SearchOption searchOption, System.Boolean checkHost) [0x00000] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.InternalGetFiles (System.String path, System.String searchPattern, System.IO.SearchOption searchOption) [0x00000] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at System.IO.Directory.GetFiles (System.String path, System.String searchPattern, System.IO.SearchOption searchOption) [0x00038] in <a1e9f114a6e64f4eacb529fc802ec93d>:0 
+  at SceneLoader.LoadScenePathsFromFile (System.String directoryPath) [0x00006] in <b416a21bdd5e470e886fea2de439dfc9>:0 
+  at tk.TcpMenuHandler.Start () [0x00007] in <b416a21bdd5e470e886fea2de439dfc9>:0 
+SDSandbox Server starting.
+Server Listening on: 0.0.0.0:9092
+Waiting for a connection...
+Setting up 5 worker threads for Enlighten.
+  Thread -> id: 170c2b000 -> priority: 1 
+  Thread -> id: 170cb7000 -> priority: 1 
+  Thread -> id: 1711bf000 -> priority: 1 
+  Thread -> id: 171133000 -> priority: 1 
+  Thread -> id: 1710a7000 -> priority: 1 
+Waiting for a connection...
+client connected.
+generated_track
+loaded scene
+Unloading 8 Unused Serialized files (Serialized files now loaded: 0)
+UnloadTime: 6.785042 ms
+JustOne removing instance.MainThDisp
+JustOne removing instance.SandboxServer
+loading: basement
+JustOne removing instance.SandboxPrivateAPIServer
+Added timer
+car loaded.
+
+Unloading 34 unused Assets to reduce memory usage. Loaded Objects now: 4923.
+Total: 2.956167 ms (FindLiveObjects: 0.176875 ms CreateObjectMapping: 0.043583 ms MarkObjects: 0.775875 ms  DeleteObjects: 1.959667 ms)
+
+Exception on recv. Connection dropped.
+removed timer
+removed split screen camera
+Removed car
+Thread 0x170907000 may have been prematurely finalized
+Server stopped.
+Server stopped.
+Thread 0x16fa83000 may have been prematurely finalized

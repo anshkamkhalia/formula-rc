@@ -1,0 +1,40 @@
+09:43:20  launched sim, unity log -> /Users/ansh/Downloads/development/formula_rc/donkeysim_logs/sim_20261114_094320.log
+09:43:21  connecting to donkeycar environment using map: [generated_track]
+09:43:21  connecting to localhost:9091 
+09:43:21  sim not ready (1/30): Could not connect to server. Is it running? If you specified 'remote', then you must start it manually.
+09:43:23  connecting to localhost:9091 
+09:43:23  waiting for sim to start..
+09:43:23  on need car config
+09:43:23  sending car config.
+09:43:24  sim started!
+09:43:27  track seed 71824
+09:43:37  New lap time: 9.22 seconds
+09:43:37  lap 1 in 9.22s (seed 71824)
+09:43:41  New lap time: 7.77 seconds
+09:43:41  lap 2 in 7.77s (seed 71824)
+09:43:46  New lap time: 9.13 seconds
+09:43:46  lap 3 in 9.13s (seed 71824)
+09:43:56  New lap time: 21.46 seconds
+09:43:56  lap 4 in 21.46s (seed 71824)
+09:44:02  New lap time: 11.83 seconds
+09:44:02  lap 5 in 11.83s (seed 71824)
+09:44:08  New lap time: 12.4 seconds
+09:44:08  lap 6 in 12.40s (seed 71824)
+09:44:15  New lap time: 13.77 seconds
+09:44:15  lap 7 in 13.77s (seed 71824)
+09:44:21  New lap time: 10.53 seconds
+09:44:21  lap 8 in 10.53s (seed 71824)
+09:44:26  New lap time: 10.55 seconds
+09:44:26  lap 9 in 10.55s (seed 71824)
+09:44:27  episode finished (seed 71824). cte: -8.02, hit: none
+09:44:36  episode finished (seed 71824). cte: 4.10, hit: Broadleaf_Mobile(Clone)
+09:44:55  episode finished (seed 71824). cte: 4.08, hit: Broadleaf_Mobile(Clone)
+09:45:02  New lap time: 9.5 seconds
+09:45:02  lap 1 in 9.50s (seed 71824)
+09:45:06  New lap time: 8.53 seconds
+09:45:06  lap 2 in 8.53s (seed 71824)
+09:45:11  New lap time: 9.07 seconds
+09:45:11  lap 3 in 9.07s (seed 71824)
+09:45:14  New lap time: 6.91 seconds
+09:45:14  lap 4 in 6.91s (seed 71824)
+09:45:16  episode finished (seed 71824). cte: -8.05, hit: none

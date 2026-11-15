@@ -7,7 +7,7 @@ class RawFramePPO(RlDriverPPOEnv):
 
     def __init__(self, model, max_cte=5.0, timesteps=8, max_speed=6):
         tracks = [
-            "donkey-minimonaco-track-v0"
+            "donkey-generated-track-v0"
         ]
         super().__init__(
             model,
@@ -15,7 +15,7 @@ class RawFramePPO(RlDriverPPOEnv):
             max_cte=max_cte,
             timesteps=timesteps,
             max_speed=max_speed,
-            track_steps=4500, # tune
+            track_steps=4096, # tune
         )
 
     def process_obs(self, obs):
@@ -23,7 +23,7 @@ class RawFramePPO(RlDriverPPOEnv):
 
 if __name__ == "__main__":
     path = "checkpoints/latest_raw_frame_ppo.weights.h5"
-    model = build_rl_driver(8)
+    model = build_rl_driver()
     if os.path.exists(path):
         model.load_weights(path)
         print("loaded model")
