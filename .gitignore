@@ -4,6 +4,8 @@
 /venv
 *.DS_Store
 /sdsandbox
+/sdsandbox/sdsim
 /checkpoints/lane_seg
 /lane_seg_data
 /run
+/bc_data

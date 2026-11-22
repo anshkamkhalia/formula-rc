@@ -20,11 +20,11 @@ def build_rl_driver(timesteps=6):
     x = tf.keras.layers.Dense(64, activation="relu")(x)
 
     # steering distribution
-    steering_mu = tf.keras.layers.Dense(1, activation=None, name="steering_mu")(x)
+    steering_mu = tf.keras.layers.Dense(1, activation="tanh", name="steering_mu")(x)
     steering_std_raw = tf.keras.layers.Dense(1, activation=None, name="steering_std_raw")(x)
 
     # throttle distribution
-    throttle_mu = tf.keras.layers.Dense(1, activation=None, name="throttle_mu")(x)
+    throttle_mu = tf.keras.layers.Dense(1, activation="sigmoid", name="throttle_mu")(x)
     throttle_std_raw = tf.keras.layers.Dense(1, activation=None, name="throttle_std_raw")(x)
 
     # critic dense

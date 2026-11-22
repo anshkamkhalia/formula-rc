@@ -196,6 +196,7 @@ def main():
             continue
 
         obs, reward, terminated, truncated, info = env.step([steering, throttle])
+        print(info["speed"])
 
         if info["lap_count"] > prev_laps:
             log.info(f"lap {info['lap_count']} in {info['last_lap_time']:.2f}s (seed {seed})")

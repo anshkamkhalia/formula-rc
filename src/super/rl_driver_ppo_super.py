@@ -15,7 +15,7 @@ from src.super.driver import build_rl_driver
 
 class RlDriverPPOEnv:
 
-    def __init__(self, model, tracks, max_cte=5.0, timesteps=6, max_speed=7.0, track_steps=1_000, img_shape=(160, 120, 3), max_ep_steps=2_000):
+    def __init__(self, model, tracks, max_cte=4.0, timesteps=6, max_speed=6.0, track_steps=1_000, img_shape=(160, 120, 3), max_ep_steps=2_000):
 
         self.max_cte = max_cte
         self.tracks = tracks
@@ -58,7 +58,9 @@ class RlDriverPPOEnv:
         self.max_speed = max_speed
         self.prev_laps = 0
         self.lap_times = []
-        self.slow_speed = 0.3 # one threshold for the penalty and the stall timeout
+        self.slow_speed = 0.5 # one threshold for the penalty
+
+        self.update_history = [] # for plotting entropy and loss curves
 
         self.max_ep_steps = max_ep_steps
 
@@ -84,6 +86,14 @@ class RlDriverPPOEnv:
         
         # sim connection state
         self.env = None
+
+        # entropy loss term gradual linear decay
+        self.start_coef = 0.03
+        self.end_coef = 0.005
+        self.decay_start = 90
+        self.decay_end = 300
+
+        self.REWARD_SCALE = 0.1 # 10%
 
     @tf.function
     def _forward(self, inputs):
@@ -140,15 +150,21 @@ class RlDriverPPOEnv:
                     tf.convert_to_tensor([speeds], dtype=tf.float32)],
                     training=False,
                 )
-                steer = float(tf.math.tanh(steer_mu))
-                throttle = float(tf.math.sigmoid(throttle_mu)) # temporary switch to just coasting
+                # steer = float(tf.math.tanh(steer_mu))
+                # throttle = float(tf.math.sigmoid(throttle_mu)) # temporary switch to just coasting
+
+                # no squashing
+                steer = float(steer_mu[0, 0])
+                throttle = float(throttle_mu[0, 0])
 
                 obs, _, terminated, truncated, info = env.step([steer, throttle])
+                if (abs(info["cte"]) > self.max_cte or info["hit"] != "none") and not terminated:
+                    print(f"step {step}: penalty without termination, cte={info['cte']:.2f}, hit={info['hit']}")
                 ep_throttles.append(throttle)
                 self.frame_buffer.append(self.process_obs(obs))
                 self.speed_buffer.append(info["speed"])
 
-                r = self.reward(info, steps=step)
+                r = self.reward(info, terminated=terminated, steps=step)
                 ep_return += r
                 ep_ctes.append(abs(info["cte"]))
 
@@ -207,7 +223,7 @@ class RlDriverPPOEnv:
         self.eval_history.append({"epoch": epoch, **metrics})
 
         panels = [
-            ("return", "episode return (raw)"),
+            ("return", "episode return"),
             ("lap_time", "lap time (s)"),
             ("cte", "mean |CTE|"),
             ("crash_rate", "crash rate"),
@@ -229,50 +245,28 @@ class RlDriverPPOEnv:
             fig.savefig(os.path.join(self.log_dir, f"{method}_ppo_{key}.png"), dpi=120)
             plt.close(fig)
 
-        columns = ["epoch"] + [key for key, _ in panels]
-        np.savetxt(
-            os.path.join(self.log_dir, f"{method}_ppo_eval.csv"),
-            np.array([[h[c] for c in columns] for h in self.eval_history], dtype=float),
-            delimiter=",", header=",".join(columns), comments="",
-        )
+    def plot_update_stats(self, stats, epoch, method):
 
-    def plot_entropy(self, entropy_history, epoch, method):
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.update_history.append({
+            "epoch": epoch,
+            "entropy": float(np.mean(stats["entropy"])),
+            "loss": float(np.mean(stats["losses"])),
+        })
+        epochs = np.array([h["epoch"] for h in self.update_history])
 
-        entropy_dir = os.path.join(self.log_dir, "entropy")
-        os.makedirs("entropy", exist_ok=True)
+        for key, label in [("entropy", "entropy"), ("loss", "total loss")]:
+            vals = np.array([h[key] for h in self.update_history], dtype=float)
 
-        fig, ax = plt.subplots(figsize=(10, 4))
-        for i, ep_entropy in enumerate(entropy_history):
-            ax.plot(np.arange(len(ep_entropy)), ep_entropy, linewidth=1, label=f"episode {i + 1}")
-
-        ax.set_xlabel("step")
-        ax.set_ylabel("throttle")
-        ax.set_ylim(0.0 - 0.05, 1.05)
-        ax.set_title(f"eval throttle epoch {epoch}")
-        ax.grid(alpha=0.3)
-        ax.legend()
-        fig.tight_layout()
-        fig.savefig(os.path.join(entropy_dir, f"{method}_entropy_epoch_{epoch}.png"), dpi=120)
-        plt.close(fig)
-
-    def plot_loss(self, loss_history, epoch, method):
-
-        loss_dir = os.path.join(self.log_dir, "entropy")
-        os.makedirs("loss", exist_ok=True)
-
-        fig, ax = plt.subplots(figsize=(10, 4))
-        for i, ep_loss in enumerate(loss_history):
-            ax.plot(np.arange(len(ep_loss)), ep_loss, linewidth=1, label=f"episode {i + 1}")
-
-        ax.set_xlabel("step")
-        ax.set_ylabel("throttle")
-        ax.set_ylim(0.0 - 0.05, 1.05)
-        ax.set_title(f"eval throttle epoch {epoch}")
-        ax.grid(alpha=0.3)
-        ax.legend()
-        fig.tight_layout()
-        fig.savefig(os.path.join(loss_dir, f"{method}_loss_epoch_{epoch}.png"), dpi=120)
-        plt.close(fig)
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.plot(epochs, vals, marker="o", markersize=3)
+            ax.set_xlabel("epoch")
+            ax.set_ylabel(label)
+            ax.set_title(f"PPO {label} ({method})")
+            ax.grid(alpha=0.3)
+            fig.tight_layout()
+            fig.savefig(os.path.join(self.log_dir, f"{method}_ppo_{key}.png"), dpi=120)
+            plt.close(fig)
 
     def plot_throttle(self, throttle_history, epoch, method):
 
@@ -316,16 +310,13 @@ class RlDriverPPOEnv:
         # sample raw actions
         raw_steer = steer_dist.sample()
         raw_throttle = throttle_dist.sample()
-        
-        # squash boundaries with tanh or sigmoid
-        steer = tf.math.tanh(raw_steer) # steering is between -1, 1
-        throttle = tf.math.sigmoid(raw_throttle) # temporary switch to coasting
 
-        # log probs
-        log_prob_steer = steer_dist.log_prob(raw_steer) - tf.math.log(1.0 - steer ** 2 + 1e-6)
-        log_prob_throttle = (throttle_dist.log_prob(raw_throttle)
-                        + tf.math.softplus(raw_throttle) + tf.math.softplus(-raw_throttle))
-        total_log_prob = log_prob_steer + log_prob_throttle
+        # go by clipping, not function sampling
+        steer = tf.clip_by_value(raw_steer, -1.0, 1.0)
+        throttle = tf.clip_by_value(raw_throttle, 0.0, 1.0)
+
+        # calculate total log prob and drop the jacobian
+        total_log_prob = steer_dist.log_prob(raw_steer) + throttle_dist.log_prob(raw_throttle)
 
         return (float(steer), float(throttle), float(raw_steer), float(raw_throttle), # remove remap
                 float(total_log_prob), float(value), pred_buffer, speeds)
@@ -340,7 +331,7 @@ class RlDriverPPOEnv:
             buffer = pad + list(buffer)
         return np.concatenate(buffer, axis=-1)
     
-    def reward(self, info, steps, train=False, epoch=None):
+    def reward(self, info, steps, terminated=False, train=False, epoch=None):
         max_cte = self.max_cte
         cte = abs(info["cte"])
 
@@ -355,8 +346,8 @@ class RlDriverPPOEnv:
             self.prev_laps = laps
 
         # terminal penalty
-        if cte > max_cte or info["hit"] != "none":
-            return -25.0 # was -30.0
+        if terminated:
+            return -20.0 * self.REWARD_SCALE
 
         speed_norm = speed / self.max_speed
         cte_frac = cte / max_cte
@@ -366,7 +357,7 @@ class RlDriverPPOEnv:
         curr_reward -= 0.5 * cte_frac ** 2
 
         if speed < self.slow_speed:
-            curr_reward -= 0.3
+            curr_reward -= 3.0
 
         lap_time = float(info.get("last_lap_time", 0.0))
 
@@ -379,7 +370,7 @@ class RlDriverPPOEnv:
             else:
                 self.lap_times.append(lap_time)
 
-            target = 8 # small track
+            target = 5 # small track
             bonus = float(np.clip(10.0 + 15.0 * (target - lap_time), 2.0, 15.0))
 
             print(f"log: lap {laps} in {lap_time:.2f}s, bonus {bonus:.1f}")
@@ -394,7 +385,7 @@ class RlDriverPPOEnv:
         _, _, _, _, value = self.rl_driver([state_tensor, speed_tensor], training=False)
         return float(value[0][0])
 
-    def train(self, epochs=100, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=6, minibatch_size=256, max_grad_norm=0.5, method="raw_frame", mode="steps"):
+    def train(self, epochs=100, gamma=0.99, lam=0.95, clip_eps=0.2, ppo_epochs=8, minibatch_size=128, max_grad_norm=0.5, method="raw_frame", mode="steps"):
 
         # new fixed step track switching
         for epoch in range(epochs+1):
@@ -453,7 +444,7 @@ class RlDriverPPOEnv:
                     self.frame_buffer.append(obs)
                     self.speed_buffer.append(info["speed"]) # keep speeds in sync with frames
                     episode_steps += 1
-                    new_reward = self.reward(info, episode_steps)
+                    new_reward = self.reward(info, episode_steps, terminated=terminated)
 
                     prev_throttle = throttle
                     truncated = (truncated or episode_steps >= self.max_ep_steps) and not terminated
@@ -475,7 +466,8 @@ class RlDriverPPOEnv:
 
                         finished_lengths.append(episode_steps)
                         finished_crashed.append(bool(terminated))
-                        print(f"{track}: cte {info['cte']:.2f}, len {episode_steps}")
+                        speed = info["speed"] # logging
+                        print(f"{track}: cte {info['cte']:.2f}, len {episode_steps}, speed {speed}")
 
                         self.restart_episode()
                         episode_steps = 0
@@ -525,12 +517,10 @@ class RlDriverPPOEnv:
                 main_buffer[k] = tf.constant(main_buffer[k], dtype=tf.float32)
 
             n = main_buffer["observations"].shape[0]
-            stats = {"kl": [], "clip": [], "policy": [], "value": [], "entropy": [], "grad_norm": [], "losses": []}
+            stats = { "clip": [], "policy": [], "value": [], "entropy": [], "grad_norm": [], "losses": []}
 
             for ppo_epoch in range(ppo_epochs):
                 indices = tf.random.shuffle(tf.range(n))
-                kl = 0
-                n_kl = 0
 
                 for start in range(0, n, minibatch_size):
                     idx = indices[start:start + minibatch_size]
@@ -572,10 +562,10 @@ class RlDriverPPOEnv:
                         squashed_throttle = tf.math.sigmoid(mb_raw_throttle) # temporary switch
 
                         # calculate log probabilities
-                        log_prob_steer = steer_dist.log_prob(mb_raw_steer) - tf.math.log(1.0 - squashed_steer ** 2 + 1e-6)
-                        log_prob_throttle = (throttle_dist.log_prob(mb_raw_throttle)
-                        + tf.math.softplus(mb_raw_throttle) + tf.math.softplus(-mb_raw_throttle))
-                        new_logp = log_prob_steer + log_prob_throttle # combine to get total
+                        # log_prob_steer = steer_dist.log_prob(mb_raw_steer) - tf.math.log(1.0 - squashed_steer ** 2 + 1e-6)
+                        # log_prob_throttle = (throttle_dist.log_prob(mb_raw_throttle)
+                        # + tf.math.softplus(mb_raw_throttle) + tf.math.softplus(-mb_raw_throttle))
+                        new_logp = steer_dist.log_prob(mb_raw_steer) + throttle_dist.log_prob(mb_raw_throttle)
 
                         # policy loss
                         ratio = tf.exp(new_logp - mb_old_logp)
@@ -592,7 +582,15 @@ class RlDriverPPOEnv:
                         entropy = tf.reduce_mean(steer_dist.entropy() + throttle_dist.entropy())
 
                         # total
-                        self.loss = policy_loss + 0.25 * value_loss - 0.01 * entropy # multiple entropy bonus by 10
+                        if epoch <= self.decay_start:
+                            entropy_coef = self.start_coef
+                        elif epoch >= self.decay_end:
+                            entropy_coef = self.end_coef
+                        else:
+                            progress = (epoch - self.decay_start) / (self.decay_end - self.decay_start)
+                            entropy_coef = self.start_coef - progress * (self.start_coef - self.end_coef)
+
+                        self.loss = policy_loss + 0.25 * value_loss - entropy_coef * entropy
             
                     # update vars
                     variables = self.rl_driver.trainable_variables
@@ -600,12 +598,8 @@ class RlDriverPPOEnv:
                     grads, grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
                     self.optimizer.apply_gradients(zip(grads, variables))
 
-                    approx_kl = float(tf.reduce_mean(mb_old_logp - new_logp))
-                    kl += approx_kl
-                    n_kl += 1
                     clip_frac = float(tf.reduce_mean(tf.cast(tf.abs(ratio - 1.0) > clip_eps, tf.float32)))
 
-                    stats["kl"].append(approx_kl)
                     stats["clip"].append(clip_frac)
                     stats["policy"].append(float(policy_loss))
                     stats["value"].append(float(value_loss))
@@ -613,19 +607,13 @@ class RlDriverPPOEnv:
                     stats["grad_norm"].append(float(grad_norm))
                     stats["losses"].append(float(self.loss))
 
-                    # plot entropy and loss
-                    self.plot_entropy(entropy_history=stats["entropy"], epoch=epoch, method=method)
-                    self.plot_loss(loss_history=stats["losses"], epoch=epoch, method=method)
-
                     # regression test: first minibatch of first pass should have ratio close to 1
                     if ppo_epoch == 0 and start == 0:
                         print("first minibatch ratio min/mean/max:",
                             float(tf.reduce_min(ratio)), float(tf.reduce_mean(ratio)), float(tf.reduce_max(ratio)))
 
-                # safety valve
-                if (kl / n_kl) > 0.05:
-                    print(f"stopping, approx kl is: {kl/n_kl}")
-                    break
+            # plot entropy and loss
+            self.plot_update_stats(stats, epoch, method)
 
             mean_len = np.mean(finished_lengths) if finished_lengths else float("nan")
             crash_rate = np.mean(finished_crashed) if finished_crashed else float("nan")
@@ -633,7 +621,6 @@ class RlDriverPPOEnv:
             print(
                 f"epoch {epoch} "
                 f"mean len {mean_len:.0f} | crash rate {crash_rate:.2f} | "
-                f"updates {len(stats['kl'])} | kl {np.mean(stats['kl']):.4f} |"
                 f"policy {np.mean(stats['policy']):.4f} | value {np.mean(stats['value']):.3f} | "
                 f"entropy {np.mean(stats['entropy']):.3f} | gradnorm {np.mean(stats['grad_norm']):.3f}"
             )
@@ -667,7 +654,7 @@ class RlDriverPPOEnv:
             subprocess.run(["killall", "-9", "donkey_sim"])
 
             print("\nwaiting\n")
-            time.sleep(30) # wait
+            time.sleep(60) # wait
 
             subprocess.Popen([self.sim_binary],
                 start_new_session=True,
@@ -676,4 +663,4 @@ class RlDriverPPOEnv:
                 stderr=subprocess.DEVNULL
             )
 
-            time.sleep(30) # wait
+            time.sleep(60) # wait

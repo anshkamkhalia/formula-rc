@@ -5,7 +5,7 @@ from src.super.driver import build_rl_driver
 import os
 class RawFramePPO(RlDriverPPOEnv):
 
-    def __init__(self, model, max_cte=5.0, timesteps=8, max_speed=6):
+    def __init__(self, model, max_cte=5.15, timesteps=6, max_speed=6):
         tracks = [
             "donkey-generated-track-v0"
         ]
@@ -22,10 +22,10 @@ class RawFramePPO(RlDriverPPOEnv):
         return np.array(obs/255.0, dtype=np.float32)
 
 if __name__ == "__main__":
-    path = "checkpoints/latest_raw_frame_ppo.weights.h5"
+    path = "checkpoints/best_bc_raw_frame.weights.h5"
     model = build_rl_driver()
     if os.path.exists(path):
         model.load_weights(path)
-        print("loaded model")
+        print(f"loaded model from {path}")
     trainer = RawFramePPO(model=model)
     trainer.train(epochs=10_000)
