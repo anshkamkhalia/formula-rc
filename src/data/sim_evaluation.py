@@ -186,6 +186,8 @@ class SimEvaluator:
 
                 if terminated or truncated:
                     crashed = terminated and not truncated
+                    cte = info["cte"]
+                    print(f"crashed, cte of {cte}")
                     break
 
             self.env.close()
@@ -198,7 +200,7 @@ class SimEvaluator:
             metrics["crash_rate"].append(n_crashes / (episode + 1))
             metrics["speed"].append(episode_metrics["speed"])
 
-            self.plot_metrics_per_episode(episode, episode_metrics)
+            # self.plot_metrics_per_episode(episode, episode_metrics)
             self.save_state(episode + 1, n_crashes, metrics)
 
         self.plot_avg_metrics(metrics)
